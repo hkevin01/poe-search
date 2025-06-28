@@ -2,8 +2,8 @@
 
 import logging
 import time
-from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 
 import httpx
 import websocket
@@ -192,6 +192,82 @@ class PoeAPIClient:
             messages.append(message)
         
         return messages
+    
+    def get_conversation_ids(self, days: int = 7) -> List[str]:
+        """Get list of conversation IDs from Poe.
+        
+        Args:
+            days: Number of days to look back
+            
+        Returns:
+            List of conversation IDs
+        """
+        logger.info(f"Fetching conversation IDs from last {days} days")
+        
+        try:
+            # In a real implementation, this would make API calls to Poe
+            # For now, return mock conversation IDs
+            conversations = self.get_recent_conversations(days)
+            return [conv["id"] for conv in conversations]
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch conversation IDs: {e}")
+            return []
+    
+    def get_recent_conversation_ids(self, days: int = 7) -> List[str]:
+        """Get recent conversation IDs (alias for get_conversation_ids).
+        
+        Args:
+            days: Number of days to look back
+            
+        Returns:
+            List of conversation IDs
+        """
+        return self.get_conversation_ids(days)
+    
+    def get_conversation(self, conversation_id: str) -> Optional[Dict[str, Any]]:
+        """Get full conversation data by ID.
+        
+        Args:
+            conversation_id: Conversation ID to fetch
+            
+        Returns:
+            Conversation data or None if not found
+        """
+        logger.info(f"Fetching conversation: {conversation_id}")
+        
+        try:
+            # In a real implementation, this would make API calls to Poe
+            # For now, return mock conversation data
+            conversations = self.get_recent_conversations(7)
+            
+            # Find the conversation by ID
+            for conv in conversations:
+                if conv["id"] == conversation_id:
+                    return conv
+            
+            # If not found, create mock data
+            return {
+                "id": conversation_id,
+                "bot": "chinchilla",
+                "title": f"Conversation {conversation_id}",
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat(),
+                "message_count": 5,
+                "messages": [
+                    {
+                        "id": f"msg_{conversation_id}_{i}",
+                        "role": "user" if i % 2 == 0 else "bot",
+                        "content": f"Message {i+1} in conversation {conversation_id}",
+                        "timestamp": (datetime.now() - timedelta(minutes=i*5)).isoformat(),
+                    }
+                    for i in range(4)
+                ],
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch conversation {conversation_id}: {e}")
+            return None
     
     def send_message(
         self,

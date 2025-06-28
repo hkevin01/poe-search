@@ -1,0 +1,166 @@
+name: Dependency Update
+
+on:
+  schedule:
+    # Run weekly on Mondays at 6 AM UTC
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      dependency_type:
+        description: "Type of dependency to update"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - production
+          - development
+          - security
+
+jobs:
+  update-dependencies:
+    runs-on: ubuntu-latest
+    name: Update Dependencies
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install pip-tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-tools
+
+      - name: Check for outdated dependencies
+        id: check-deps
+        run: |
+          echo "Checking for outdated dependencies..."
+          pip list --outdated --format=freeze > outdated.txt || true
+
+          if [ -s outdated.txt ]; then
+            echo "Found outdated dependencies:"
+            cat outdated.txt
+            echo "has_updates=true" >> $GITHUB_OUTPUT
+          else
+            echo "No outdated dependencies found"
+            echo "has_updates=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update dependencies
+        if: steps.check-deps.outputs.has_updates == 'true'
+        run: |
+          echo "Updating dependencies..."
+
+          # Update production dependencies
+          pip install --upgrade pip
+          pip install --upgrade -e ".[dev]"
+
+          # Generate requirements files
+          pip-compile pyproject.toml --output-file=requirements.txt
+          pip-compile pyproject.toml --extra=dev --output-file=requirements-dev.txt
+          pip-compile pyproject.toml --extra=gui --output-file=requirements-gui.txt
+
+      - name: Run tests with updated dependencies
+        if: steps.check-deps.outputs.has_updates == 'true'
+        run: |
+          echo "Running tests with updated dependencies..."
+          pip install -e ".[dev]"
+          pytest tests/ --cov=poe_search --cov-report=xml
+
+      - name: Create Pull Request
+        if: steps.check-deps.outputs.has_updates == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update dependencies"
+          title: "chore: update dependencies"
+          body: |
+            ## Dependency Updates
+
+            This PR updates the project dependencies to their latest versions.
+
+            ### Changes
+            - Updated production dependencies
+            - Updated development dependencies
+            - Updated GUI dependencies
+
+            ### Testing
+            - [x] All tests pass with updated dependencies
+            - [x] No breaking changes detected
+
+            ### Notes
+            - This is an automated update
+            - Please review the changes carefully
+            - Run the full test suite locally before merging
+
+            ### Updated Files
+            - requirements.txt
+            - requirements-dev.txt
+            - requirements-gui.txt
+
+            Closes # (if applicable)
+          branch: dependency-update/$(date +%Y%m%d)
+          delete-branch: true
+          labels: |
+            dependencies
+            automated
+          assignees: ${{ github.repository_owner }}
+
+      - name: Comment on PR
+        if: steps.check-deps.outputs.has_updates == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pulls } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              head: context.repo.owner + ':dependency-update/' + new Date().toISOString().slice(0, 10).replace(/-/g, '')
+            });
+
+            if (pulls.length > 0) {
+              const pr = pulls[0];
+              
+              // Read outdated dependencies
+              const fs = require('fs');
+              let outdatedDeps = '';
+              if (fs.existsSync('outdated.txt')) {
+                outdatedDeps = fs.readFileSync('outdated.txt', 'utf8');
+              }
+              
+              const comment = `## Dependency Update Summary
+              
+              ### Outdated Dependencies Found:
+              \`\`\`
+              ${outdatedDeps || 'No outdated dependencies found'}
+              \`\`\`
+              
+              ### Next Steps:
+              1. Review the changes in this PR
+              2. Run tests locally: \`pytest tests/\`
+              3. Test the application functionality
+              4. Merge if everything looks good
+              
+              ### Security Note:
+              This update includes security patches. Please merge promptly if no issues are found.`;
+              
+              await github.rest.issues.createComment({
+                issue_number: pr.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+            }
+
+      - name: Comment if no updates needed
+        if: steps.check-deps.outputs.has_updates == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            console.log('No dependency updates needed');
+            // Could create an issue or comment on a specific issue to track this

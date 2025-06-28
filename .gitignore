@@ -159,9 +159,11 @@ exports/
 logs/
 temp/
 
-# Secrets
+# Secrets and Configuration
+config/
 *.pem
 *.key
 config.json
+secrets.json
 .env.local
 .env.production

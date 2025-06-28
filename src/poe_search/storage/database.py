@@ -1,11 +1,11 @@
 """Database storage for conversations and metadata."""
 
+import json
 import logging
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -449,3 +449,148 @@ class Database:
                 now,
                 json.dumps({"created": now}),
             ))
+    
+    def get_conversation_count(self) -> int:
+        """Get total number of conversations in database.
+        
+        Returns:
+            Number of conversations
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM conversations")
+            return cursor.fetchone()[0]
+    
+    def populate_sample_data(self) -> None:
+        """Populate database with sample conversations for testing."""
+        sample_conversations = [
+            {
+                "id": "sample_001",
+                "bot": "Claude",
+                "title": "Python Programming Help",
+                "created_at": "2024-01-15T10:30:00Z",
+                "updated_at": "2024-01-15T11:45:00Z",
+                "message_count": 4,
+                "messages": [
+                    {
+                        "id": "msg_001_1",
+                        "role": "user",
+                        "content": "How do I implement binary search in Python?",
+                        "timestamp": "2024-01-15T10:30:00Z",
+                        "bot": "Claude"
+                    },
+                    {
+                        "id": "msg_001_2",
+                        "role": "bot",
+                        "content": "Binary search is an efficient algorithm for finding elements in a sorted array. Here's an implementation:\n\ndef binary_search(arr, target):\n    left, right = 0, len(arr) - 1\n    while left <= right:\n        mid = (left + right) // 2\n        if arr[mid] == target:\n            return mid\n        elif arr[mid] < target:\n            left = mid + 1\n        else:\n            right = mid - 1\n    return -1",
+                        "timestamp": "2024-01-15T10:32:00Z",
+                        "bot": "Claude"
+                    },
+                    {
+                        "id": "msg_001_3",
+                        "role": "user",
+                        "content": "What's the time complexity?",
+                        "timestamp": "2024-01-15T11:30:00Z",
+                        "bot": "Claude"
+                    },
+                    {
+                        "id": "msg_001_4",
+                        "role": "bot",
+                        "content": "Binary search has O(log n) time complexity, where n is the number of elements in the array. This makes it very efficient for large datasets.",
+                        "timestamp": "2024-01-15T11:32:00Z",
+                        "bot": "Claude"
+                    }
+                ],
+                "category": "Programming"
+            },
+            {
+                "id": "sample_002",
+                "bot": "GPT-4",
+                "title": "JavaScript Async/Await Explanation",
+                "created_at": "2024-01-16T14:20:00Z",
+                "updated_at": "2024-01-16T15:10:00Z",
+                "message_count": 3,
+                "messages": [
+                    {
+                        "id": "msg_002_1",
+                        "role": "user",
+                        "content": "Can you explain async/await in JavaScript?",
+                        "timestamp": "2024-01-16T14:20:00Z",
+                        "bot": "GPT-4"
+                    },
+                    {
+                        "id": "msg_002_2",
+                        "role": "bot",
+                        "content": "Async/await is a syntax for handling promises in JavaScript. It makes asynchronous code look and behave more like synchronous code.\n\nHere's an example:\n\nasync function fetchUserData() {\n    try {\n        const response = await fetch('/api/user');\n        const user = await response.json();\n        return user;\n    } catch (error) {\n        console.error('Error:', error);\n    }\n}",
+                        "timestamp": "2024-01-16T14:25:00Z",
+                        "bot": "GPT-4"
+                    },
+                    {
+                        "id": "msg_002_3",
+                        "role": "user",
+                        "content": "Thanks! That's much clearer than callbacks.",
+                        "timestamp": "2024-01-16T15:10:00Z",
+                        "bot": "GPT-4"
+                    }
+                ],
+                "category": "Programming"
+            },
+            {
+                "id": "sample_003",
+                "bot": "Claude",
+                "title": "Machine Learning Basics",
+                "created_at": "2024-01-17T09:15:00Z",
+                "updated_at": "2024-01-17T10:30:00Z",
+                "message_count": 5,
+                "messages": [
+                    {
+                        "id": "msg_003_1",
+                        "role": "user",
+                        "content": "What's the difference between supervised and unsupervised learning?",
+                        "timestamp": "2024-01-17T09:15:00Z",
+                        "bot": "Claude"
+                    },
+                    {
+                        "id": "msg_003_2",
+                        "role": "bot",
+                        "content": "Supervised learning uses labeled training data to learn the relationship between inputs and outputs. The algorithm learns to map inputs to known outputs.\n\nUnsupervised learning finds patterns in data without labeled outputs. It discovers hidden structures in the data.",
+                        "timestamp": "2024-01-17T09:18:00Z",
+                        "bot": "Claude"
+                    },
+                    {
+                        "id": "msg_003_3",
+                        "role": "user",
+                        "content": "Can you give examples of each?",
+                        "timestamp": "2024-01-17T09:45:00Z",
+                        "bot": "Claude"
+                    },
+                    {
+                        "id": "msg_003_4",
+                        "role": "bot",
+                        "content": "Supervised learning examples:\n- Classification: Spam detection, image recognition\n- Regression: House price prediction, stock forecasting\n\nUnsupervised learning examples:\n- Clustering: Customer segmentation, document grouping\n- Dimensionality reduction: PCA, t-SNE",
+                        "timestamp": "2024-01-17T09:48:00Z",
+                        "bot": "Claude"
+                    },
+                    {
+                        "id": "msg_003_5",
+                        "role": "user",
+                        "content": "Which should I learn first?",
+                        "timestamp": "2024-01-17T10:30:00Z",
+                        "bot": "Claude"
+                    }
+                ],
+                "category": "Education"
+            }
+        ]
+        
+        logger.info("Populating database with sample data...")
+        for conversation in sample_conversations:
+            self.save_conversation(conversation)
+        logger.info(f"Added {len(sample_conversations)} sample conversations")
+    
+    def is_empty(self) -> bool:
+        """Check if database is empty.
+        
+        Returns:
+            True if no conversations exist
+        """
+        return self.get_conversation_count() == 0

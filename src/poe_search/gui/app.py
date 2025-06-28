@@ -3,16 +3,14 @@
 import sys
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
 
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt, QDir
+from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon, QFont
 
-import qdarktheme
-
 from poe_search.gui.main_window import MainWindow
-from poe_search.utils.config import load_config, setup_logging
+from poe_search.utils.config import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -30,18 +28,16 @@ class PoeSearchApp:
         self.config = load_config(config_path)
         self.app = None
         self.main_window = None
+    
+    def create_app(self) -> QApplication:
+        """Create and configure the QApplication instance.
         
-        # Setup logging
-        setup_logging(self.config)
-        
-    def setup_application(self) -> QApplication:
-        """Set up the QApplication with Windows 11 styling."""
-        # Enable high DPI scaling
-        QApplication.setHighDpiScaleFactorRoundingPolicy(
-            Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
-        )
-        
+        Returns:
+            Configured QApplication instance
+        """
         app = QApplication(sys.argv)
+        
+        # Set application properties
         app.setApplicationName("Poe Search")
         app.setApplicationDisplayName("Poe Search")
         app.setApplicationVersion("0.1.0")
@@ -64,233 +60,317 @@ class PoeSearchApp:
         icon_path = Path(__file__).parent / "resources" / "icons" / "app_icon.png"
         if icon_path.exists():
             app.setWindowIcon(QIcon(str(icon_path)))
-        else:
-            # Use a default icon from system
-            app.setWindowIcon(app.style().standardIcon(app.style().StandardPixmap.SP_ComputerIcon))
     
     def apply_windows11_theme(self, app: QApplication) -> None:
-        """Apply Windows 11 dark theme styling."""
-        # Use qdarktheme for modern dark theme
-        qdarktheme.setup_theme("auto")  # Auto-detect system theme
+        """Apply Windows 11-style dark theme."""
+        try:
+            # Try to use pyqtdarktheme if available
+            import pyqtdarktheme
+            pyqtdarktheme.setup_theme()
+        except ImportError:
+            # Apply custom dark theme
+            self.apply_custom_dark_theme(app)
+    
+    def apply_custom_dark_theme(self, app: QApplication) -> None:
+        """Apply a custom dark theme if other options fail."""
+        style = """
+        QMainWindow {
+            background-color: #1e1e1e;
+            color: #ffffff;
+        }
         
-        # Additional Windows 11 specific styling
-        app.setStyleSheet(app.styleSheet() + """
-            /* Windows 11 specific styling */
-            QMainWindow {
-                background-color: #202020;
-            }
-            
-            QMenuBar {
-                background-color: #2b2b2b;
-                color: #ffffff;
-                border: none;
-                padding: 4px;
-            }
-            
-            QMenuBar::item {
-                background-color: transparent;
-                padding: 8px 12px;
-                border-radius: 4px;
-            }
-            
-            QMenuBar::item:selected {
-                background-color: #3d3d3d;
-            }
-            
-            QStatusBar {
-                background-color: #2b2b2b;
-                color: #ffffff;
-                border-top: 1px solid #404040;
-            }
-            
-            QToolBar {
-                background-color: #2b2b2b;
-                border: none;
-                spacing: 4px;
-                padding: 4px;
-            }
-            
-            QPushButton {
-                background-color: #0078d4;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: 500;
-            }
-            
-            QPushButton:hover {
-                background-color: #106ebe;
-            }
-            
-            QPushButton:pressed {
-                background-color: #005a9e;
-            }
-            
-            QPushButton:disabled {
-                background-color: #404040;
-                color: #808080;
-            }
-            
-            QLineEdit {
-                background-color: #323232;
-                border: 2px solid #404040;
-                border-radius: 4px;
-                padding: 8px;
-                color: #ffffff;
-                font-size: 14px;
-            }
-            
-            QLineEdit:focus {
-                border-color: #0078d4;
-            }
-            
-            QTableWidget {
-                background-color: #2b2b2b;
-                alternate-background-color: #323232;
-                gridline-color: #404040;
-                selection-background-color: #0078d4;
-                border: 1px solid #404040;
-                border-radius: 4px;
-            }
-            
-            QTableWidget::item {
-                padding: 8px;
-                border: none;
-            }
-            
-            QHeaderView::section {
-                background-color: #3d3d3d;
-                color: #ffffff;
-                padding: 8px;
-                border: none;
-                border-right: 1px solid #404040;
-                font-weight: 600;
-            }
-            
-            QScrollBar:vertical {
-                background-color: #2b2b2b;
-                width: 12px;
-                border-radius: 6px;
-            }
-            
-            QScrollBar::handle:vertical {
-                background-color: #404040;
-                border-radius: 6px;
-                min-height: 20px;
-            }
-            
-            QScrollBar::handle:vertical:hover {
-                background-color: #505050;
-            }
-            
-            QTabWidget::pane {
-                border: 1px solid #404040;
-                background-color: #2b2b2b;
-                border-radius: 4px;
-            }
-            
-            QTabBar::tab {
-                background-color: #3d3d3d;
-                color: #ffffff;
-                padding: 8px 16px;
-                margin-right: 2px;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-            }
-            
-            QTabBar::tab:selected {
-                background-color: #0078d4;
-            }
-            
-            QTabBar::tab:hover {
-                background-color: #505050;
-            }
-            
-            QProgressBar {
-                border: 1px solid #404040;
-                border-radius: 4px;
-                text-align: center;
-                background-color: #323232;
-            }
-            
-            QProgressBar::chunk {
-                background-color: #0078d4;
-                border-radius: 3px;
-            }
-            
-            QComboBox {
-                background-color: #323232;
-                border: 2px solid #404040;
-                border-radius: 4px;
-                padding: 8px;
-                color: #ffffff;
-                min-width: 100px;
-            }
-            
-            QComboBox:focus {
-                border-color: #0078d4;
-            }
-            
-            QComboBox::drop-down {
-                border: none;
-                width: 30px;
-            }
-            
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 5px solid #ffffff;
-                margin-top: 2px;
-            }
-            
-            /* Tooltip styling */
-            QToolTip {
-                background-color: #323232;
-                color: #ffffff;
-                border: 1px solid #404040;
-                border-radius: 4px;
-                padding: 8px;
-                font-size: 12px;
-            }
-        """)
+        QWidget {
+            background-color: #1e1e1e;
+            color: #ffffff;
+            selection-background-color: #0078d4;
+        }
+        
+        QTabWidget::pane {
+            border: 1px solid #444444;
+            background-color: #2b2b2b;
+        }
+        
+        QTabBar::tab {
+            background-color: #2b2b2b;
+            color: #ffffff;
+            padding: 8px 16px;
+            margin-right: 2px;
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+        }
+        
+        QTabBar::tab:selected {
+            background-color: #0078d4;
+        }
+        
+        QTabBar::tab:hover {
+            background-color: #404040;
+        }
+        
+        QLineEdit {
+            background-color: #3b3b3b;
+            border: 1px solid #555555;
+            padding: 8px;
+            border-radius: 4px;
+            color: #ffffff;
+        }
+        
+        QLineEdit:focus {
+            border-color: #0078d4;
+        }
+        
+        QTableWidget {
+            background-color: #2b2b2b;
+            alternate-background-color: #353535;
+            gridline-color: #555555;
+            color: #ffffff;
+        }
+        
+        QTableWidget::item {
+            padding: 8px;
+        }
+        
+        QTableWidget::item:selected {
+            background-color: #0078d4;
+        }
+        
+        QHeaderView::section {
+            background-color: #404040;
+            color: #ffffff;
+            padding: 8px;
+            border: none;
+        }
+        
+        QScrollBar:vertical {
+            background-color: #2b2b2b;
+            width: 12px;
+        }
+        
+        QScrollBar::handle:vertical {
+            background-color: #555555;
+            border-radius: 6px;
+            min-height: 20px;
+        }
+        
+        QScrollBar::handle:vertical:hover {
+            background-color: #666666;
+        }
+        
+        QMenuBar {
+            background-color: #2b2b2b;
+            color: #ffffff;
+        }
+        
+        QMenuBar::item {
+            background-color: transparent;
+            padding: 4px 8px;
+        }
+        
+        QMenuBar::item:selected {
+            background-color: #404040;
+        }
+        
+        QMenu {
+            background-color: #2b2b2b;
+            color: #ffffff;
+            border: 1px solid #555555;
+        }
+        
+        QMenu::item {
+            padding: 6px 16px;
+        }
+        
+        QMenu::item:selected {
+            background-color: #0078d4;
+        }
+        
+        QStatusBar {
+            background-color: #2b2b2b;
+            color: #ffffff;
+            border-top: 1px solid #555555;
+        }
+        
+        QToolBar {
+            background-color: #2b2b2b;
+            border: none;
+            spacing: 4px;
+            padding: 4px;
+        }
+        
+        QPushButton {
+            background-color: #0078d4;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        
+        QPushButton:hover {
+            background-color: #106ebe;
+        }
+        
+        QPushButton:pressed {
+            background-color: #005a9e;
+        }
+        
+        QPushButton:disabled {
+            background-color: #404040;
+            color: #888888;
+        }
+        
+        QComboBox {
+            background-color: #3b3b3b;
+            border: 1px solid #555555;
+            padding: 6px;
+            border-radius: 4px;
+            color: #ffffff;
+        }
+        
+        QComboBox::drop-down {
+            border: none;
+            width: 20px;
+        }
+        
+        QComboBox::down-arrow {
+            image: none;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 5px solid #ffffff;
+        }
+        
+        QComboBox QAbstractItemView {
+            background-color: #2b2b2b;
+            border: 1px solid #555555;
+            selection-background-color: #0078d4;
+            color: #ffffff;
+        }
+        
+        QCheckBox {
+            color: #ffffff;
+        }
+        
+        QCheckBox::indicator {
+            width: 16px;
+            height: 16px;
+            border: 1px solid #555555;
+            border-radius: 3px;
+            background-color: #3b3b3b;
+        }
+        
+        QCheckBox::indicator:checked {
+            background-color: #0078d4;
+            border-color: #0078d4;
+        }
+        
+        QProgressBar {
+            background-color: #3b3b3b;
+            border: 1px solid #555555;
+            border-radius: 4px;
+            text-align: center;
+            color: #ffffff;
+        }
+        
+        QProgressBar::chunk {
+            background-color: #0078d4;
+            border-radius: 3px;
+        }
+        
+        QGroupBox {
+            color: #ffffff;
+            border: 1px solid #555555;
+            border-radius: 4px;
+            margin: 8px 0px;
+            padding-top: 8px;
+        }
+        
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            left: 8px;
+            padding: 0 4px 0 4px;
+        }
+        
+        QTextEdit {
+            background-color: #2b2b2b;
+            color: #ffffff;
+            border: 1px solid #555555;
+            border-radius: 4px;
+        }
+        
+        QListWidget {
+            background-color: #2b2b2b;
+            color: #ffffff;
+            border: 1px solid #555555;
+            border-radius: 4px;
+        }
+        
+        QListWidget::item {
+            padding: 4px;
+            border-bottom: 1px solid #444444;
+        }
+        
+        QListWidget::item:selected {
+            background-color: #0078d4;
+        }
+        
+        QSpinBox, QDateEdit {
+            background-color: #3b3b3b;
+            border: 1px solid #555555;
+            padding: 6px;
+            border-radius: 4px;
+            color: #ffffff;
+        }
+        """
+        
+        app.setStyleSheet(style)
     
     def set_application_font(self, app: QApplication) -> None:
         """Set the application font to match Windows 11."""
-        # Use Segoe UI Variable if available, fallback to Segoe UI
-        font = QFont("Segoe UI Variable", 10)
-        if not font.exactMatch():
-            font = QFont("Segoe UI", 10)
-        
-        font.setWeight(QFont.Weight.Normal)
+        font = QFont("Segoe UI", 9)
         app.setFont(font)
     
     def run(self) -> int:
         """Run the application.
         
         Returns:
-            Exit code
+            Application exit code
         """
         try:
-            self.app = self.setup_application()
+            # Create QApplication
+            self.app = self.create_app()
             
-            # Create and show main window
-            self.main_window = MainWindow(config=self.config)
+            # Create main window
+            self.main_window = MainWindow(self.config)
+            
+            # Show main window
             self.main_window.show()
             
-            logger.info("Poe Search GUI started successfully")
-            
-            # Run the event loop
+            # Run event loop
             return self.app.exec()
             
         except Exception as e:
-            logger.error(f"Failed to start GUI application: {e}")
+            logger.error(f"Application error: {e}")
             if self.app:
-                self.app.quit()
+                QMessageBox.critical(
+                    None,
+                    "Application Error",
+                    f"An error occurred: {e}\n\nThe application will now exit."
+                )
             return 1
+
+
+def main():
+    """Main entry point for the GUI application."""
+    # Setup logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     
-    def quit(self) -> None:
-        """Quit the application."""
-        if self.app:
-            self.app.quit()
+    # Create and run application
+    app = PoeSearchApp()
+    return app.run()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

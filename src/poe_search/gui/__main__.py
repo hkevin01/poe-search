@@ -1,9 +1,8 @@
-"""GUI module for Poe Search application."""
+"""Main entry point for the GUI application."""
 
 import sys
-from poe_search.gui.app import PoeSearchApp
 
-__all__ = ["PoeSearchApp", "main"]
+from poe_search.gui.app import PoeSearchApp
 
 
 def main():
@@ -13,4 +12,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main()) 

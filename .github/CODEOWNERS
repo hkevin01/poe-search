@@ -1,0 +1,55 @@
+# Global owners
+* @kevin
+
+# Core functionality
+/src/poe_search/ @kevin
+/src/poe_search/api/ @kevin
+/src/poe_search/storage/ @kevin
+/src/poe_search/search/ @kevin
+/src/poe_search/export/ @kevin
+/src/poe_search/utils/ @kevin
+
+# CLI interface
+/src/poe_search/cli/ @kevin
+
+# GUI interface
+/src/poe_search/gui/ @kevin
+/src/poe_search/gui/widgets/ @kevin
+/src/poe_search/gui/dialogs/ @kevin
+/src/poe_search/gui/workers/ @kevin
+
+# Tests
+/tests/ @kevin
+/tests/api/ @kevin
+/tests/gui/ @kevin
+/tests/integration/ @kevin
+/tests/storage/ @kevin
+
+# Documentation
+/docs/ @kevin
+README.md @kevin
+CHANGELOG.md @kevin
+CONTRIBUTING.md @kevin
+SECURITY.md @kevin
+WORKFLOW.md @kevin
+PROJECT_GOALS.md @kevin
+
+# Configuration files
+pyproject.toml @kevin
+.pre-commit-config.yaml @kevin
+.editorconfig @kevin
+.gitignore @kevin
+
+# GitHub workflows and templates
+/.github/ @kevin
+/.github/workflows/ @kevin
+/.github/ISSUE_TEMPLATE/ @kevin
+
+# Copilot configuration
+/.copilot/ @kevin
+
+# Scripts
+/scripts/ @kevin
+
+# License
+LICENSE @kevin 

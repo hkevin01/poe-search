@@ -1,0 +1,100 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run weekly on Sundays at 2 AM UTC
+    - cron: "0 2 * * 0"
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    name: Security Scan
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install bandit safety
+
+      - name: Run Bandit security scan
+        run: |
+          bandit -r src/poe_search/ -f json -o bandit-report.json || true
+          bandit -r src/poe_search/ -f txt -o bandit-report.txt || true
+
+      - name: Run Safety check
+        run: |
+          safety check --json --output safety-report.json || true
+          safety check --full-report --output safety-report.txt || true
+
+      - name: Upload Bandit results to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: bandit-report.json
+
+      - name: Comment PR with security findings
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            let comment = '## Security Scan Results\n\n';
+
+            // Check if bandit found issues
+            if (fs.existsSync('bandit-report.txt')) {
+              const banditOutput = fs.readFileSync('bandit-report.txt', 'utf8');
+              if (banditOutput.trim()) {
+                comment += '### Bandit Security Issues\n\n';
+                comment += '```\n' + banditOutput + '\n```\n\n';
+              } else {
+                comment += '✅ No Bandit security issues found\n\n';
+              }
+            }
+
+            // Check if safety found issues
+            if (fs.existsSync('safety-report.txt')) {
+              const safetyOutput = fs.readFileSync('safety-report.txt', 'utf8');
+              if (safetyOutput.trim()) {
+                comment += '### Safety Dependency Issues\n\n';
+                comment += '```\n' + safetyOutput + '\n```\n\n';
+              } else {
+                comment += '✅ No Safety dependency issues found\n\n';
+              }
+            }
+
+            if (comment === '## Security Scan Results\n\n✅ No security issues found\n\n') {
+              comment = '## Security Scan Results\n\n✅ No security issues found';
+            }
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Upload security reports as artifacts
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-reports
+          path: |
+            bandit-report.json
+            bandit-report.txt
+            safety-report.json
+            safety-report.txt
+          retention-days: 30

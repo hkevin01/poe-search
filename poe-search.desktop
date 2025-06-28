@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Poe Search
+Comment=Search and organize Poe.com conversations
+Exec=/home/kevin/Projects/poe-search/venv/bin/python /home/kevin/Projects/poe-search/src/poe_search/gui/app.py
+Icon=/home/kevin/Projects/poe-search/src/poe_search/gui/resources/icons/app_icon.png
+Terminal=false
+Categories=Utility;Office;Network;
+Keywords=poe;chat;conversation;search;ai;
+StartupWMClass=poe-search 

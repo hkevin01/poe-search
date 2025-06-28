@@ -442,13 +442,16 @@ class ConversationWidget(QWidget):
 
     def refresh_data(self):
         """Refresh the conversation data."""
-        if self.current_conversation and self.client:
-            try:
+        logger.debug("ConversationWidget.refresh_data() called")
+        try:
+            if self.current_conversation and self.client:
                 # Reload the current conversation from the database
                 conversation_id = self.current_conversation.get("id")
                 if conversation_id:
                     conversation = self.client.database.get_conversation(conversation_id)
                     if conversation:
                         self.load_conversation(conversation)
-            except Exception as e:
-                logger.error(f"Failed to refresh conversation data: {e}")
+            logger.debug("ConversationWidget.refresh_data() completed successfully")
+        except Exception as e:
+            logger.error(f"Failed to refresh conversation data: {e}")
+            raise

@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import QDate, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QFont, QIcon, QPixmap
+from PyQt6.QtGui import QAction, QBrush, QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
     QDateEdit,
@@ -28,6 +29,7 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QStatusBar,
+    QSystemTrayIcon,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -45,6 +47,8 @@ from poe_search.gui.widgets.search_widget import SearchWidget
 from poe_search.gui.workers.search_worker import SearchWorker
 from poe_search.gui.workers.sync_worker import SyncWorker
 
+# Setup comprehensive logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
@@ -58,6 +62,8 @@ class MainWindow(QMainWindow):
             config: Application configuration
         """
         super().__init__()
+        
+        logger.info("MainWindow initializing...")
         
         self.config = config
         self.client = None
@@ -78,6 +84,11 @@ class MainWindow(QMainWindow):
         self.status_timer = QTimer()
         self.status_timer.timeout.connect(self.update_status)
         self.status_timer.start(5000)  # Update every 5 seconds
+        
+        # Setup system tray
+        self.setup_system_tray()
+        
+        logger.info("MainWindow initialization completed")
     
     def setup_ui(self):
         """Set up the user interface."""
@@ -264,43 +275,56 @@ class MainWindow(QMainWindow):
         self.category_widget.category_updated.connect(self.update_conversation_category)
         self.category_widget.bulk_categorization_requested.connect(self.bulk_categorize_conversations)
         
-        # Analytics widget connections
-        self.analytics_widget.refresh_requested.connect(self.refresh_analytics)
+        # Analytics widget connections - REMOVED to prevent recursion
+        # self.analytics_widget.refresh_requested.connect(self.refresh_analytics)
     
     def setup_client(self):
-        """Set up the Poe Search client."""
+        """Set up the API client."""
+        logger.info("Setting up API client...")
+        
         try:
-            token = self.config.poe_token
-            if not token:
+            # Check if API token is available
+            if not hasattr(self.config, 'poe_token') or not self.config.poe_token:
+                logger.error("No Poe token found in configuration")
                 self.show_token_setup_dialog()
                 return
             
-            self.client = PoeSearchClient(
-                token=token,
-                database_url=self.config.database_url
-            )
+            token = self.config.poe_token
+            logger.info(f"Poe token found: {token[:10]}...")
             
-            # Check if database is empty and populate with sample data
-            if self.client.database.is_empty():
-                logger.info("Database is empty, populating with sample data...")
-                self.client.database.populate_sample_data()
-                self.status_label.setText("Sample data loaded - Ready to search")
-            else:
-                self.status_label.setText("Ready - Connected to Poe Search")
+            # Create client using the main PoeSearchClient
+            from poe_search.client import PoeSearchClient
+            self.client = PoeSearchClient(token=token)
+            logger.info("PoeSearchClient created successfully")
             
-            self.connection_label.setText("Connected")
-            self.db_label.setText("DB: Ready")
-            
-            # Initialize widgets with client
-            self.search_widget.set_client(self.client)
-            self.conversation_widget.set_client(self.client)
-            self.analytics_widget.set_client(self.client)
-            
+            # Test connection by syncing conversations
+            try:
+                logger.info("Testing connection by syncing conversations...")
+                stats = self.client.sync(days=7)
+                logger.info(f"Sync successful: {stats}")
+                
+                # Get conversations from database
+                conversations = self.client.get_conversations()
+                logger.info(f"Found {len(conversations)} conversations in database")
+                
+                # Refresh UI with fetched data
+                self.refresh_data()
+                
+            except Exception as e:
+                logger.error(f"Connection test failed: {e}")
+                QMessageBox.warning(
+                    self,
+                    "Connection Error",
+                    f"Failed to connect to Poe API: {str(e)}\n\nPlease check your API token and internet connection."
+                )
+                
         except Exception as e:
-            logger.error(f"Failed to setup client: {e}")
-            self.connection_label.setText("Error")
-            self.status_label.setText(f"Error: {e}")
-            QMessageBox.critical(self, "Connection Error", f"Failed to setup client: {e}")
+            logger.error(f"Failed to setup API client: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Client Setup Error",
+                f"Failed to setup API client: {str(e)}"
+            )
     
     def show_token_setup_dialog(self):
         """Show dialog to set up Poe token."""
@@ -356,12 +380,39 @@ class MainWindow(QMainWindow):
                 return
             
             query = search_params.get("query", "")
+            # If search query is empty, fetch all conversations within filters
             if not query.strip():
-                QMessageBox.information(
-                    self, 
-                    "Search Query", 
-                    "Please enter a search query."
-                )
+                self.status_label.setText("Showing all conversations in selected range")
+                self.progress_bar.setVisible(True)
+                self.progress_bar.setRange(0, 0)
+                # Use filters for bot, category, date_from, date_to
+                bot = search_params.get("bot")
+                category = search_params.get("category")
+                date_from = search_params.get("date_from")
+                date_to = search_params.get("date_to")
+                # Fetch all conversations and filter in memory
+                conversations = self.client.get_conversations()
+                # Apply filters
+                filtered = []
+                for conv in conversations:
+                    if bot and bot != "All Bots" and conv.get("bot") != bot:
+                        continue
+                    if category and category != "All Categories" and conv.get("category", "Uncategorized") != category:
+                        continue
+                    created = conv.get("created_at")
+                    if created:
+                        try:
+                            from datetime import datetime
+                            dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
+                        except Exception:
+                            continue
+                        if date_from and dt.date() < date_from:
+                            continue
+                        if date_to and dt.date() > date_to:
+                            continue
+                    filtered.append(conv)
+                self.on_search_results(filtered)
+                self.on_search_finished()
                 return
             
             self.status_label.setText(f"Searching for: {query}")
@@ -413,7 +464,15 @@ class MainWindow(QMainWindow):
             conversation_id: Conversation ID to show
         """
         self.tab_widget.setCurrentIndex(1)
-        self.conversation_widget.show_conversation(conversation_id)
+        # Fetch the conversation object from the database and load it
+        if self.client and self.client.database:
+            conversation = self.client.database.get_conversation(conversation_id)
+            if conversation:
+                self.conversation_widget.load_conversation(conversation)
+            else:
+                QMessageBox.warning(self, "Not Found", f"Conversation {conversation_id} not found in database.")
+        else:
+            QMessageBox.warning(self, "Error", "Client or database not initialized.")
     
     def sync_conversations(self):
         """Sync conversations from Poe.com."""
@@ -462,33 +521,77 @@ class MainWindow(QMainWindow):
             self.sync_worker = None
     
     def refresh_data(self):
-        """Refresh data in all widgets."""
-        self.refresh_conversations()
-        self.refresh_analytics()
-        self.status_label.setText("Data refreshed")
+        """Refresh all data in the application."""
+        logger.info("Starting data refresh...")
+        
+        if not self.client:
+            logger.warning("No client available for data refresh")
+            return
+        
+        try:
+            # Fetch conversations
+            logger.info("Fetching conversations from API...")
+            conversations = self.client.get_conversations()
+            logger.info(f"Fetched {len(conversations)} conversations")
+            
+            # Update status
+            self.status_label.setText(f"Loaded {len(conversations)} conversations")
+            
+            # Refresh individual widgets
+            self.refresh_conversations()
+            self.refresh_analytics()
+            
+            logger.info("Data refresh completed successfully")
+            
+        except Exception as e:
+            logger.error(f"Data refresh failed: {e}", exc_info=True)
+            self.status_label.setText(f"Error: {str(e)}")
+            QMessageBox.warning(
+                self,
+                "Refresh Error",
+                f"Failed to refresh data: {str(e)}"
+            )
     
     def refresh_conversations(self):
         """Refresh conversation data."""
+        logger.debug("MainWindow.refresh_conversations() called")
         if self.client:
-            self.conversation_widget.refresh_data()
+            try:
+                self.conversation_widget.refresh_data()
+                logger.debug("MainWindow.refresh_conversations() completed successfully")
+            except Exception as e:
+                logger.error(f"Error in MainWindow.refresh_conversations(): {e}")
+                raise
     
     def refresh_analytics(self):
         """Refresh analytics data."""
+        logger.debug("MainWindow.refresh_analytics() called")
         if self.client:
-            self.analytics_widget.refresh_data()
+            try:
+                self.analytics_widget.refresh_data()
+                logger.debug("MainWindow.refresh_analytics() completed successfully")
+            except Exception as e:
+                logger.error(f"Error in MainWindow.refresh_analytics(): {e}")
+                raise
     
     def export_conversations(self):
         """Export conversations to file."""
+        logger.debug("MainWindow.export_conversations() called")
         if not self.client:
             QMessageBox.warning(self, "Error", "Please configure your Poe token first.")
             return
         
-        from poe_search.gui.dialogs.export_dialog import ExportDialog
-        
-        dialog = ExportDialog(self)
-        if dialog.exec() == ExportDialog.DialogCode.Accepted:
-            export_config = dialog.get_export_config()
-            self.perform_export(export_config)
+        try:
+            from poe_search.gui.dialogs.export_dialog import ExportDialog
+            
+            dialog = ExportDialog(self)
+            if dialog.exec() == ExportDialog.DialogCode.Accepted:
+                export_config = dialog.get_export_config()
+                self.perform_export(export_config)
+            logger.debug("MainWindow.export_conversations() completed successfully")
+        except Exception as e:
+            logger.error(f"Error in MainWindow.export_conversations(): {e}")
+            raise
     
     def perform_export(self, export_config: Dict[str, Any]):
         """Perform export operation.
@@ -496,6 +599,7 @@ class MainWindow(QMainWindow):
         Args:
             export_config: Export configuration
         """
+        logger.debug("MainWindow.perform_export() called")
         try:
             self.status_label.setText("Exporting conversations...")
             self.progress_bar.setVisible(True)
@@ -510,11 +614,14 @@ class MainWindow(QMainWindow):
                 "Export Complete", 
                 f"Conversations exported to {export_config['output_path']}"
             )
+            logger.debug("MainWindow.perform_export() completed successfully")
             
         except Exception as e:
             self.progress_bar.setVisible(False)
             QMessageBox.critical(self, "Export Error", f"Export failed: {e}")
             self.status_label.setText("Export failed")
+            logger.error(f"Error in MainWindow.perform_export(): {e}")
+            raise
     
     def open_settings(self):
         """Open settings dialog."""
@@ -564,21 +671,42 @@ class MainWindow(QMainWindow):
                 self.db_label.setText("DB: Error")
     
     def closeEvent(self, event):
-        """Handle close event.
-        
-        Args:
-            event: Close event
-        """
-        # Stop any running workers
-        if self.search_worker and self.search_worker.isRunning():
-            self.search_worker.terminate()
-            self.search_worker.wait()
-        
-        if self.sync_worker and self.sync_worker.isRunning():
-            self.sync_worker.terminate()
-            self.sync_worker.wait()
-        
-        event.accept()
+        """Handle window close event."""
+        # Check if system tray is available and icon is visible
+        if (hasattr(self, 'tray_icon') and 
+            self.tray_icon and 
+            self.tray_icon.isVisible()):
+            
+            # Show confirmation dialog
+            reply = QMessageBox.question(
+                self,
+                "Poe Search",
+                "The application will be minimized to the system tray.\n"
+                "To quit the application, right-click the tray icon and select 'Exit'.\n\n"
+                "Do you want to minimize to tray?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                # Hide the window instead of closing
+                self.hide()
+                self.tray_icon.showMessage(
+                    "Poe Search",
+                    "Application minimized to system tray",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    2000
+                )
+                event.ignore()  # Don't close the application
+                return
+            else:
+                # User chose to quit
+                self.quit_application()
+                event.accept()
+        else:
+            # No system tray available, close normally
+            logger.info("No system tray available, closing application normally")
+            event.accept()
     
     def update_conversation_category(self, conversation_id: str, category: str):
         """Update conversation category.
@@ -780,3 +908,158 @@ class MainWindow(QMainWindow):
                 continue
         
         return conversations
+
+    def setup_system_tray(self):
+        """Set up the system tray."""
+        # Check if system tray is available
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            logger.warning("System tray is not available on this system")
+            return
+        
+        # Create system tray icon
+        self.tray_icon = QSystemTrayIcon(self)
+        
+        # Try to load tray icon from file first
+        icon_loaded = False
+        icon_paths = [
+            Path(__file__).parent / "resources" / "icons" / "tray_icon.png",
+            Path(__file__).parent / "resources" / "icons" / 
+            "tray_icon_32x32.png",
+            Path(__file__).parent / "resources" / "icons" / 
+            "tray_icon_24x24.png",
+            Path(__file__).parent / "resources" / "icons" / 
+            "tray_icon_16x16.png",
+        ]
+        
+        for icon_path in icon_paths:
+            if icon_path.exists():
+                self.tray_icon.setIcon(QIcon(str(icon_path)))
+                icon_loaded = True
+                logger.info(f"Tray icon loaded from: {icon_path}")
+                break
+        
+        # Fallback to programmatically created icon
+        if not icon_loaded:
+            icon_pixmap = self.create_poe_search_icon()
+            self.tray_icon.setIcon(QIcon(icon_pixmap))
+            logger.info("Using programmatically created tray icon")
+        
+        self.tray_icon.setToolTip("Poe Search - AI Conversation Manager")
+        
+        # Create tray menu
+        tray_menu = QMenu()
+        
+        # Show/Hide action
+        show_action = QAction("Show/Hide", self)
+        show_action.triggered.connect(self.toggle_window_visibility)
+        tray_menu.addAction(show_action)
+        
+        tray_menu.addSeparator()
+        
+        # Quick actions
+        search_action = QAction("Search", self)
+        search_action.triggered.connect(self.focus_search)
+        tray_menu.addAction(search_action)
+        
+        sync_action = QAction("Sync Conversations", self)
+        sync_action.triggered.connect(self.sync_conversations)
+        tray_menu.addAction(sync_action)
+        
+        tray_menu.addSeparator()
+        
+        # Settings and exit
+        settings_action = QAction("Settings", self)
+        settings_action.triggered.connect(self.open_settings)
+        tray_menu.addAction(settings_action)
+        
+        exit_action = QAction("Exit", self)
+        exit_action.triggered.connect(self.quit_application)
+        tray_menu.addAction(exit_action)
+        
+        # Set the menu
+        self.tray_icon.setContextMenu(tray_menu)
+        
+        # Connect double-click to show window
+        self.tray_icon.activated.connect(self.on_tray_activated)
+        
+        # Show the tray icon with error handling
+        try:
+            if self.tray_icon.show():
+                logger.info("System tray icon created successfully")
+            else:
+                logger.warning("System tray icon show() returned False - tray may not be supported")
+        except Exception as e:
+            logger.warning(f"Failed to show system tray icon: {e}")
+            # Don't fail the application if tray icon fails
+            self.tray_icon = None
+
+    def create_poe_search_icon(self) -> QPixmap:
+        """Create a Poe-themed search icon."""
+        # Create a 32x32 pixmap
+        pixmap = QPixmap(32, 32)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        
+        # Create a painter to draw the icon
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Poe brand colors: Purple (#7C3AED) and gradient
+        poe_purple = QColor("#7C3AED")
+        poe_dark = QColor("#5B21B6")
+        poe_light = QColor("#A78BFA")
+        
+        # Draw magnifying glass (search symbol)
+        # Glass circle
+        painter.setPen(QPen(poe_purple, 2))
+        painter.setBrush(QBrush(poe_light))
+        painter.drawEllipse(8, 8, 16, 16)
+        
+        # Handle
+        painter.setPen(QPen(poe_purple, 3))
+        painter.drawLine(20, 20, 26, 26)
+        
+        # Add a small "P" for Poe in the center
+        painter.setPen(QPen(poe_dark, 1))
+        painter.setFont(QFont("Arial", 8, QFont.Weight.Bold))
+        painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "P")
+        
+        painter.end()
+        return pixmap
+
+    def toggle_window_visibility(self):
+        """Toggle window visibility."""
+        if self.isVisible():
+            self.hide()
+            self.tray_icon.showMessage(
+                "Poe Search",
+                "Application minimized to system tray",
+                QSystemTrayIcon.MessageIcon.Information,
+                2000
+            )
+        else:
+            self.show()
+            self.raise_()
+            self.activateWindow()
+
+    def on_tray_activated(self, reason):
+        """Handle tray icon activation."""
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self.toggle_window_visibility()
+
+    def quit_application(self):
+        """Quit the application completely."""
+        # Stop any running workers
+        if self.search_worker and self.search_worker.isRunning():
+            self.search_worker.terminate()
+            self.search_worker.wait()
+        
+        if self.sync_worker and self.sync_worker.isRunning():
+            self.sync_worker.terminate()
+            self.sync_worker.wait()
+        
+        # Hide tray icon
+        if hasattr(self, 'tray_icon') and self.tray_icon:
+            self.tray_icon.hide()
+        
+        # Close the application
+        QApplication.quit()

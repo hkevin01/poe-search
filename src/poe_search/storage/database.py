@@ -264,6 +264,36 @@ class Database:
             
             return conversations
     
+    def get_conversation(self, conversation_id: str) -> Optional[Dict[str, Any]]:
+        """Get a single conversation by ID.
+        
+        Args:
+            conversation_id: Conversation ID to retrieve
+            
+        Returns:
+            Conversation data or None if not found
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM conversations WHERE id = ?",
+                (conversation_id,)
+            )
+            row = cursor.fetchone()
+            
+            if row:
+                conv_data = json.loads(row["data"]) if row["data"] else {}
+                conv_data.update({
+                    "id": row["id"],
+                    "bot": row["bot"],
+                    "title": row["title"],
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                    "message_count": row["message_count"],
+                })
+                return conv_data
+            
+            return None
+    
     def search_messages(
         self,
         query: str,
@@ -294,7 +324,7 @@ class Database:
             params.append(bot)
         
         sql_query += " ORDER BY rank LIMIT ?"
-        params.append(limit)
+        params.append(str(limit))
         
         with self._get_connection() as conn:
             cursor = conn.execute(sql_query, params)

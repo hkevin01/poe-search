@@ -80,6 +80,59 @@ class PoeSearchConfig:
     log_level: str = "INFO"
     enable_debug_mode: bool = False
     cache_size_mb: int = 100
+    
+    def copy(self) -> 'PoeSearchConfig':
+        """Create a copy of the configuration.
+        
+        Returns:
+            A new PoeSearchConfig instance with copied values
+        """
+        return PoeSearchConfig(
+            poe_token=self.poe_token,
+            database_url=self.database_url,
+            gui=GUISettings(
+                window_width=self.gui.window_width,
+                window_height=self.gui.window_height,
+                window_x=self.gui.window_x,
+                window_y=self.gui.window_y,
+                theme=self.gui.theme,
+                font_size=self.gui.font_size,
+                auto_refresh_interval=self.gui.auto_refresh_interval,
+                show_toolbar=self.gui.show_toolbar,
+                show_status_bar=self.gui.show_status_bar,
+                remember_window_position=self.gui.remember_window_position,
+                remember_window_size=self.gui.remember_window_size,
+            ),
+            search=SearchSettings(
+                default_search_limit=self.search.default_search_limit,
+                enable_fuzzy_search=self.search.enable_fuzzy_search,
+                enable_regex_search=self.search.enable_regex_search,
+                case_sensitive=self.search.case_sensitive,
+                search_in_messages=self.search.search_in_messages,
+                search_in_titles=self.search.search_in_titles,
+                highlight_search_results=self.search.highlight_search_results,
+                auto_search_delay=self.search.auto_search_delay,
+            ),
+            sync=SyncSettings(
+                auto_sync_on_startup=self.sync.auto_sync_on_startup,
+                sync_interval=self.sync.sync_interval,
+                sync_days_back=self.sync.sync_days_back,
+                sync_batch_size=self.sync.sync_batch_size,
+                retry_failed_syncs=self.sync.retry_failed_syncs,
+                max_retry_attempts=self.sync.max_retry_attempts,
+            ),
+            export=ExportSettings(
+                default_export_format=self.export.default_export_format,
+                default_export_directory=self.export.default_export_directory,
+                include_metadata=self.export.include_metadata,
+                include_messages=self.export.include_messages,
+                compress_exports=self.export.compress_exports,
+                export_filename_template=self.export.export_filename_template,
+            ),
+            log_level=self.log_level,
+            enable_debug_mode=self.enable_debug_mode,
+            cache_size_mb=self.cache_size_mb,
+        )
 
 
 class ConfigManager:
@@ -121,7 +174,9 @@ class ConfigManager:
         if secrets_path.exists():
             try:
                 with open(secrets_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    secrets = json.load(f)
+                    logger.info("Loaded secrets from config/secrets.json")
+                    return secrets
             except Exception as e:
                 logger.warning(
                     f"Failed to load secrets from {secrets_path}: {e}"
@@ -147,9 +202,12 @@ class ConfigManager:
         
         # Load API key from secrets file
         secrets = self._load_secrets()
-        if api_key := secrets.get("poe_api_key"):
+        if api_key := secrets.get("api_key"):
             config.poe_token = api_key
             logger.info("Loaded API key from secrets file")
+        elif poe_api_key := secrets.get("poe_api_key"):
+            config.poe_token = poe_api_key
+            logger.info("Loaded Poe API key from secrets file")
         
         self.save_config(config)
         return config

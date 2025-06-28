@@ -1,13 +1,12 @@
 """Main application class for Poe Search GUI."""
 
-import sys
 import logging
+import sys
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional
 
+from PyQt6.QtGui import QFont, QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon, QFont
 
 from poe_search.gui.main_window import MainWindow
 from poe_search.utils.config import load_config
@@ -56,10 +55,64 @@ class PoeSearchApp:
         return app
     
     def set_application_icon(self, app: QApplication) -> None:
-        """Set the application icon."""
-        icon_path = Path(__file__).parent / "resources" / "icons" / "app_icon.png"
-        if icon_path.exists():
-            app.setWindowIcon(QIcon(str(icon_path)))
+        """Set the application icon for all platforms."""
+        logger.info("Setting up application icon...")
+        
+        # Try multiple icon paths for different sizes
+        icon_paths = [
+            Path(__file__).parent / "resources" / "icons" / "app_icon.png",
+            Path(__file__).parent / "resources" / "icons" / 
+            "app_icon_128x128.png",
+            Path(__file__).parent / "resources" / "icons" / 
+            "app_icon_64x64.png",
+            Path(__file__).parent / "resources" / "icons" / 
+            "app_icon_48x48.png",
+            Path(__file__).parent / "resources" / "icons" / 
+            "app_icon_32x32.png",
+        ]
+        
+        icon_loaded = False
+        for icon_path in icon_paths:
+            if icon_path.exists():
+                app.setWindowIcon(QIcon(str(icon_path)))
+                logger.info(f"Application icon set from: {icon_path}")
+                icon_loaded = True
+                break
+        
+        if not icon_loaded:
+            logger.warning("No application icon found")
+        
+        # Platform-specific icon setup
+        self._setup_platform_icon(app)
+    
+    def _setup_platform_icon(self, app: QApplication) -> None:
+        """Setup platform-specific icon requirements."""
+        import sys
+        
+        if sys.platform == "linux":
+            # Linux-specific: Set desktop entry
+            try:
+                app.setDesktopFileName('poe-search.desktop')
+                logger.info("Linux desktop entry set")
+            except Exception as e:
+                logger.warning(f"Failed to set Linux desktop entry: {e}")
+                
+        elif sys.platform == "win32":
+            # Windows-specific: Set taskbar icon
+            try:
+                import ctypes
+                myappid = 'poe_search.poe_search.1.0'
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+                logger.info("Windows taskbar icon ID set")
+            except Exception as e:
+                logger.warning(f"Failed to set Windows taskbar icon: {e}")
+        
+        # Set application properties for better OS integration
+        app.setApplicationName("Poe Search")
+        app.setApplicationDisplayName("Poe Search")
+        app.setApplicationVersion("0.1.0")
+        app.setOrganizationName("Poe Search")
+        app.setOrganizationDomain("github.com/kevin/poe-search")
     
     def apply_windows11_theme(self, app: QApplication) -> None:
         """Apply Windows 11-style dark theme."""

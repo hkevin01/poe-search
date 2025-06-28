@@ -1,0 +1,1 @@
+"""Icons package for Poe Search GUI.""" 

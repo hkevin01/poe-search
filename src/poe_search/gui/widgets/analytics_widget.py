@@ -577,7 +577,13 @@ class AnalyticsWidget(QWidget):
     
     def refresh_analytics(self):
         """Refresh analytics data."""
-        self.refresh_requested.emit()
+        logger.debug("AnalyticsWidget.refresh_analytics() called")
+        try:
+            self.refresh_requested.emit()
+            logger.debug("AnalyticsWidget.refresh_analytics() completed successfully")
+        except Exception as e:
+            logger.error(f"Error in AnalyticsWidget.refresh_analytics(): {e}")
+            raise
     
     def toggle_auto_refresh(self, enabled: bool):
         """Toggle auto-refresh functionality."""
@@ -590,4 +596,15 @@ class AnalyticsWidget(QWidget):
 
     def refresh_data(self):
         """Refresh analytics data (alias for refresh_analytics)."""
-        self.refresh_analytics()
+        logger.debug("AnalyticsWidget.refresh_data() called")
+        try:
+            # Don't call refresh_analytics() to avoid recursion
+            # Instead, directly emit the signal or update the data
+            if self.client:
+                # Get conversations and update analytics directly
+                conversations = self.client.get_conversations()
+                self.update_analytics(conversations)
+            logger.debug("AnalyticsWidget.refresh_data() completed successfully")
+        except Exception as e:
+            logger.error(f"Error in AnalyticsWidget.refresh_data(): {e}")
+            raise

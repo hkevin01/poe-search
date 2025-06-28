@@ -1,20 +1,30 @@
-"""Settings dialog."""
+"""Settings dialog for Poe Search."""
 
-from typing import Dict, Any
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
-    QLabel, QLineEdit, QPushButton, QCheckBox, QSpinBox,
-    QComboBox, QFileDialog, QGroupBox, QFormLayout
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLineEdit,
+    QPushButton,
+    QSpinBox,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt
+
+from poe_search.utils.config import GUISettings, PoeSearchConfig, SearchSettings
 
 
 class SettingsDialog(QDialog):
     """Dialog for application settings."""
     
-    def __init__(self, config: Dict[str, Any], parent=None):
+    def __init__(self, config: PoeSearchConfig, parent=None):
         """Initialize the settings dialog.
         
         Args:
@@ -229,64 +239,88 @@ class SettingsDialog(QDialog):
     def load_config(self):
         """Load configuration into UI."""
         # General
-        self.token_input.setText(self.config.get("token", ""))
-        theme = self.config.get("theme", "Dark")
-        index = self.theme_combo.findText(theme)
+        self.token_input.setText(self.config.poe_token)
+        theme = self.config.gui.theme
+        index = self.theme_combo.findText(theme.title())
         if index >= 0:
             self.theme_combo.setCurrentIndex(index)
         
-        self.auto_refresh_check.setChecked(self.config.get("auto_refresh", True))
-        self.confirm_delete_check.setChecked(self.config.get("confirm_delete", True))
+        self.auto_refresh_check.setChecked(
+            self.config.gui.auto_refresh_interval > 0
+        )
+        self.confirm_delete_check.setChecked(True)  # Default to True
         
         # Database
-        self.db_path_input.setText(self.config.get("database_url", ""))
-        self.auto_backup_check.setChecked(self.config.get("auto_backup", False))
-        self.backup_interval_spin.setValue(self.config.get("backup_interval", 7))
+        self.db_path_input.setText(self.config.database_url)
+        self.auto_backup_check.setChecked(False)  # Default to False
+        self.backup_interval_spin.setValue(7)  # Default to 7 days
         
         # Search
-        self.max_results_spin.setValue(self.config.get("max_results", 100))
-        self.case_sensitive_check.setChecked(self.config.get("case_sensitive", False))
-        self.regex_check.setChecked(self.config.get("regex_enabled", False))
-        self.highlight_results_check.setChecked(self.config.get("highlight_results", True))
-        self.auto_index_check.setChecked(self.config.get("auto_index", True))
-        self.index_interval_spin.setValue(self.config.get("index_interval", 15))
+        self.max_results_spin.setValue(
+            self.config.search.default_search_limit
+        )
+        self.case_sensitive_check.setChecked(self.config.search.case_sensitive)
+        self.regex_check.setChecked(self.config.search.enable_regex_search)
+        self.highlight_results_check.setChecked(
+            self.config.search.highlight_search_results
+        )
+        self.auto_index_check.setChecked(True)  # Default to True
+        self.index_interval_spin.setValue(15)  # Default to 15 minutes
         
         # Advanced
-        log_level = self.config.get("log_level", "INFO")
+        log_level = self.config.log_level
         index = self.log_level_combo.findText(log_level)
         if index >= 0:
             self.log_level_combo.setCurrentIndex(index)
         
-        self.log_to_file_check.setChecked(self.config.get("log_to_file", False))
-        self.cache_size_spin.setValue(self.config.get("cache_size", 100))
-        self.parallel_requests_spin.setValue(self.config.get("parallel_requests", 3))
+        self.log_to_file_check.setChecked(False)  # Default to False
+        self.cache_size_spin.setValue(self.config.cache_size_mb)
+        self.parallel_requests_spin.setValue(3)  # Default to 3
     
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> PoeSearchConfig:
         """Get the updated configuration.
         
         Returns:
-            Updated configuration dictionary
+            Updated configuration object
         """
-        # Update config with UI values
-        self.config["token"] = self.token_input.text()
-        self.config["theme"] = self.theme_combo.currentText()
-        self.config["auto_refresh"] = self.auto_refresh_check.isChecked()
-        self.config["confirm_delete"] = self.confirm_delete_check.isChecked()
+        # Create a new config with updated values
+        updated_config = PoeSearchConfig(
+            poe_token=self.token_input.text(),
+            database_url=self.db_path_input.text(),
+            gui=GUISettings(
+                window_width=self.config.gui.window_width,
+                window_height=self.config.gui.window_height,
+                window_x=self.config.gui.window_x,
+                window_y=self.config.gui.window_y,
+                theme=self.theme_combo.currentText().lower(),
+                font_size=self.config.gui.font_size,
+                auto_refresh_interval=(
+                    30 if self.auto_refresh_check.isChecked() else 0
+                ),
+                show_toolbar=self.config.gui.show_toolbar,
+                show_status_bar=self.config.gui.show_status_bar,
+                remember_window_position=(
+                    self.config.gui.remember_window_position
+                ),
+                remember_window_size=self.config.gui.remember_window_size,
+            ),
+            search=SearchSettings(
+                default_search_limit=self.max_results_spin.value(),
+                enable_fuzzy_search=self.config.search.enable_fuzzy_search,
+                enable_regex_search=self.regex_check.isChecked(),
+                case_sensitive=self.case_sensitive_check.isChecked(),
+                search_in_messages=self.config.search.search_in_messages,
+                search_in_titles=self.config.search.search_in_titles,
+                highlight_search_results=(
+                    self.highlight_results_check.isChecked()
+                ),
+                auto_search_delay=self.config.search.auto_search_delay,
+            ),
+            sync=self.config.sync,
+            export=self.config.export,
+            log_level=self.log_level_combo.currentText(),
+            enable_debug_mode=self.config.enable_debug_mode,
+            cache_size_mb=self.cache_size_spin.value(),
+        )
         
-        self.config["database_url"] = self.db_path_input.text()
-        self.config["auto_backup"] = self.auto_backup_check.isChecked()
-        self.config["backup_interval"] = self.backup_interval_spin.value()
-        
-        self.config["max_results"] = self.max_results_spin.value()
-        self.config["case_sensitive"] = self.case_sensitive_check.isChecked()
-        self.config["regex_enabled"] = self.regex_check.isChecked()
-        self.config["highlight_results"] = self.highlight_results_check.isChecked()
-        self.config["auto_index"] = self.auto_index_check.isChecked()
-        self.config["index_interval"] = self.index_interval_spin.value()
-        
-        self.config["log_level"] = self.log_level_combo.currentText()
-        self.config["log_to_file"] = self.log_to_file_check.isChecked()
-        self.config["cache_size"] = self.cache_size_spin.value()
-        self.config["parallel_requests"] = self.parallel_requests_spin.value()
-        
-        return self.config
+        return updated_config

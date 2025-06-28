@@ -323,8 +323,9 @@ class SearchWidget(QWidget):
             self.refresh_timer.stop()
     
     def refresh_results(self):
-        """Refresh search results."""
-        if self.search_input.text():
+        """Refresh the search results."""
+        if self.client:
+            # Re-run the last search
             self.perform_search()
     
     def show_progress(self, show: bool):
@@ -435,3 +436,13 @@ class SearchWidget(QWidget):
             if title_item:
                 return title_item.data(Qt.ItemDataRole.UserRole)
         return None
+
+    def refresh_data(self):
+        """Refresh search data (alias for refresh_results)."""
+        logger.debug("SearchWidget.refresh_data() called")
+        try:
+            self.refresh_results()
+            logger.debug("SearchWidget.refresh_data() completed successfully")
+        except Exception as e:
+            logger.error(f"Error in SearchWidget.refresh_data(): {e}")
+            raise

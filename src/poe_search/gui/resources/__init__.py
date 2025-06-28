@@ -1,0 +1,1 @@
+"""Resources package for Poe Search GUI.""" 

@@ -118,12 +118,58 @@ class Database:
             )
             return cursor.fetchone() is not None
     
+    def _normalize_api_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize API data format to database format.
+        
+        Args:
+            data: Raw API data
+            
+        Returns:
+            Normalized data for database storage
+        """
+        normalized = data.copy()
+        
+        # Convert camelCase to snake_case for common fields
+        field_mapping = {
+            "createdAt": "created_at",
+            "updatedAt": "updated_at", 
+            "messageCount": "message_count",
+            "displayName": "display_name",
+            "conversationId": "conversation_id"
+        }
+        
+        for camel_case, snake_case in field_mapping.items():
+            if camel_case in normalized:
+                normalized[snake_case] = normalized.pop(camel_case)
+        
+        # Handle nested bot object
+        if "bot" in normalized and isinstance(normalized["bot"], dict):
+            bot_data = normalized["bot"]
+            if "displayName" in bot_data:
+                bot_data["display_name"] = bot_data.pop("displayName")
+            if "id" in bot_data:
+                # Extract bot ID for the main bot field
+                normalized["bot"] = bot_data["id"]
+        
+        # Handle messages array
+        if "messages" in normalized and isinstance(normalized["messages"], list):
+            for message in normalized["messages"]:
+                if "createdAt" in message:
+                    message["timestamp"] = message.pop("createdAt")
+                if "conversationId" in message:
+                    message["conversation_id"] = message.pop("conversationId")
+        
+        return normalized
+    
     def save_conversation(self, conversation: Dict[str, Any]) -> None:
         """Save conversation to database.
         
         Args:
             conversation: Conversation data
         """
+        # Normalize API data format
+        conversation = self._normalize_api_data(conversation)
+        
         with self._get_connection() as conn:
             # Insert/update conversation
             conn.execute("""
@@ -203,12 +249,14 @@ class Database:
                 conn.close()
     
     def update_conversation(self, conversation: Dict[str, Any]) -> None:
-        """Update existing conversation.
+        """Update existing conversation in database.
         
         Args:
             conversation: Updated conversation data
         """
-        # For now, just save (which replaces)
+        # Normalize API data format
+        conversation = self._normalize_api_data(conversation)
+        
         self.save_conversation(conversation)
     
     def get_conversations(

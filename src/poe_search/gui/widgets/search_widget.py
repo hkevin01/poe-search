@@ -42,7 +42,8 @@ class SearchWidget(QWidget):
         
         self.conversations = []
         self.filtered_conversations = []
-        self.client = None
+        self.database = None
+        self.logger = logging.getLogger(__name__)
         
         self.setup_ui()
         self.setup_connections()
@@ -51,13 +52,26 @@ class SearchWidget(QWidget):
         self.refresh_timer = QTimer()
         self.refresh_timer.timeout.connect(self.refresh_results)
         
+    def set_database(self, database):
+        """Set the database instance.
+        
+        Args:
+            database: Database instance
+        """
+        self.database = database
+        self.logger.info("Database set for search widget")
+    
     def set_client(self, client):
-        """Set the Poe Search client.
+        """Set the Poe Search client (legacy method for compatibility).
         
         Args:
             client: PoeSearchClient instance
         """
-        self.client = client
+        if hasattr(client, 'database'):
+            self.database = client.database
+            self.logger.info("Database set from client for search widget")
+        else:
+            self.logger.warning("Client has no database attribute")
     
     def focus_search_input(self):
         """Focus on the search input field."""
@@ -265,11 +279,11 @@ class SearchWidget(QWidget):
         self.search_button.clicked.connect(self.perform_search)
         self.search_input.returnPressed.connect(self.perform_search)
         
-        # Filters
+        # Filters - make date filters trigger new search
         self.bot_combo.currentTextChanged.connect(self.apply_filters)
         self.category_combo.currentTextChanged.connect(self.apply_filters)
-        self.date_from.dateChanged.connect(self.apply_filters)
-        self.date_to.dateChanged.connect(self.apply_filters)
+        self.date_from.dateChanged.connect(self.perform_search)  # Trigger new search
+        self.date_to.dateChanged.connect(self.perform_search)    # Trigger new search
         
         # Clear filters
         self.clear_filters_button.clicked.connect(self.clear_filters)
@@ -283,28 +297,56 @@ class SearchWidget(QWidget):
     
     def perform_search(self):
         """Perform a search with current parameters."""
+        if not self.database:
+            return
+            
         search_params = {
             "query": self.search_input.text(),
-            "bot": self.bot_combo.currentText(),
-            "category": self.category_combo.currentText(),
+            "bot": self.bot_combo.currentText() if self.bot_combo.currentText() != "All Bots" else None,
+            "category": self.category_combo.currentText() if self.category_combo.currentText() != "All Categories" else None,
             "date_from": self.date_from.date().toPyDate(),
             "date_to": self.date_to.date().toPyDate(),
             "use_regex": self.regex_checkbox.isChecked(),
             "case_sensitive": self.case_sensitive_checkbox.isChecked()
         }
         
+        logger.info(f"Performing search with params: {search_params}")
         self.search_requested.emit(search_params)
         self.show_progress(True)
     
     def apply_filters(self):
         """Apply current filters to the results."""
-        # This would filter the current results without performing a new search
-        self.filter_current_results()
+        # For non-date filters, we can filter current results
+        # For date filters, we need to perform a new search
+        if self.database and self.conversations:
+            self.filter_current_results()
     
     def filter_current_results(self):
         """Filter the current results based on UI filters."""
-        # Implementation would filter self.conversations based on current filter settings
-        pass
+        if not self.conversations:
+            return
+            
+        filtered_conversations = []
+        
+        for conversation in self.conversations:
+            # Bot filter
+            selected_bot = self.bot_combo.currentText()
+            if selected_bot != "All Bots" and conversation.get("bot") != selected_bot:
+                continue
+                
+            # Category filter
+            selected_category = self.category_combo.currentText()
+            if selected_category != "All Categories" and conversation.get("category") != selected_category:
+                continue
+                
+            filtered_conversations.append(conversation)
+        
+        # Update the table with filtered results
+        self.populate_table(filtered_conversations)
+        
+        # Update results label
+        count = len(filtered_conversations)
+        self.results_label.setText(f"{count} conversation{'s' if count != 1 else ''} found")
     
     def clear_filters(self):
         """Clear all filters."""
@@ -315,6 +357,9 @@ class SearchWidget(QWidget):
         self.regex_checkbox.setChecked(False)
         self.case_sensitive_checkbox.setChecked(False)
         
+        # Perform a new search with cleared filters
+        self.perform_search()
+    
     def toggle_auto_refresh(self, enabled: bool):
         """Toggle auto-refresh functionality."""
         if enabled:
@@ -324,7 +369,7 @@ class SearchWidget(QWidget):
     
     def refresh_results(self):
         """Refresh the search results."""
-        if self.client:
+        if self.database:
             # Re-run the last search
             self.perform_search()
     

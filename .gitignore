@@ -167,3 +167,8 @@ config.json
 secrets.json
 .env.local
 .env.production
+config/poe_tokens.json
+
+# Poe Search secrets and Selenium browser data
+selenium_profile/
+selenium_cache/

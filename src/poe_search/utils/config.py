@@ -7,6 +7,9 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import keyring  # type: ignore
+from dotenv import load_dotenv
+
 logger = logging.getLogger(__name__)
 
 
@@ -62,10 +65,33 @@ class ExportSettings:
 
 
 @dataclass
+class RateLimitSettings:
+    """Rate limiting settings."""
+    enable_rate_limiting: bool = True
+    max_calls_per_minute: int = 8
+    retry_attempts: int = 3
+    base_delay_seconds: int = 5
+    max_delay_seconds: int = 60
+    jitter_range: float = 0.5
+    show_rate_limit_warnings: bool = True
+    prompt_for_token_costs: bool = True
+
+
+@dataclass
 class PoeSearchConfig:
     """Main configuration class."""
-    # API settings
-    poe_token: str = ""
+    # API settings - support both old and new formats
+    poe_token: str = ""  # Legacy single token
+    poe_tokens: Dict[str, str] = field(default_factory=lambda: {
+        "p-b": "",
+        "p-lat": "",
+        "formkey": ""
+    })  # New cookie-based tokens
+    
+    # Official API settings
+    poe_api_key: str = ""  # Official API key from poe.com/api_key
+    api_type: str = "wrapper"  # "wrapper" or "official"
+    
     database_url: str = "sqlite:///poe_search.db"
     
     # GUI settings
@@ -75,63 +101,86 @@ class PoeSearchConfig:
     search: SearchSettings = field(default_factory=SearchSettings)
     sync: SyncSettings = field(default_factory=SyncSettings)
     export: ExportSettings = field(default_factory=ExportSettings)
+    rate_limit: RateLimitSettings = field(default_factory=RateLimitSettings)
     
     # Advanced settings
     log_level: str = "INFO"
     enable_debug_mode: bool = False
     cache_size_mb: int = 100
     
+    def get_poe_tokens(self) -> Dict[str, str]:
+        """Get Poe tokens, supporting both old and new formats.
+        
+        Returns:
+            Dictionary of Poe tokens (p-b, p-lat, formkey)
+        """
+        # If we have the new format, use it
+        if self.poe_tokens and self.poe_tokens.get("p-b"):
+            return self.poe_tokens
+        
+        # Fall back to old format
+        if self.poe_token:
+            return {
+                "p-b": self.poe_token,
+                "p-lat": self.poe_token,  # Use same token for both
+                "formkey": ""
+            }
+        
+        return {"p-b": "", "p-lat": "", "formkey": ""}
+    
+    def has_valid_tokens(self) -> bool:
+        """Check if we have valid Poe tokens.
+        
+        Returns:
+            True if we have at least p-b token
+        """
+        tokens = self.get_poe_tokens()
+        return bool(tokens.get("p-b"))
+    
+    def get_poe_api_key(self) -> str:
+        """Get Poe API key from config or secure sources."""
+        if self.poe_api_key:
+            return self.poe_api_key
+        return get_poe_api_key()
+    
+    def get_api_type(self) -> str:
+        """Get the current API type.
+        
+        Returns:
+            "wrapper" or "official"
+        """
+        return self.api_type
+    
+    def set_api_type(self, api_type: str) -> None:
+        """Set the API type.
+        
+        Args:
+            api_type: "wrapper" or "official"
+        """
+        if api_type not in ["wrapper", "official"]:
+            raise ValueError("API type must be 'wrapper' or 'official'")
+        self.api_type = api_type
+    
     def copy(self) -> 'PoeSearchConfig':
         """Create a copy of the configuration.
         
         Returns:
-            A new PoeSearchConfig instance with copied values
+            Copy of the configuration
         """
         return PoeSearchConfig(
             poe_token=self.poe_token,
+            poe_tokens=self.poe_tokens.copy(),
+            poe_api_key=self.poe_api_key,
+            api_type=self.api_type,
             database_url=self.database_url,
-            gui=GUISettings(
-                window_width=self.gui.window_width,
-                window_height=self.gui.window_height,
-                window_x=self.gui.window_x,
-                window_y=self.gui.window_y,
-                theme=self.gui.theme,
-                font_size=self.gui.font_size,
-                auto_refresh_interval=self.gui.auto_refresh_interval,
-                show_toolbar=self.gui.show_toolbar,
-                show_status_bar=self.gui.show_status_bar,
-                remember_window_position=self.gui.remember_window_position,
-                remember_window_size=self.gui.remember_window_size,
-            ),
-            search=SearchSettings(
-                default_search_limit=self.search.default_search_limit,
-                enable_fuzzy_search=self.search.enable_fuzzy_search,
-                enable_regex_search=self.search.enable_regex_search,
-                case_sensitive=self.search.case_sensitive,
-                search_in_messages=self.search.search_in_messages,
-                search_in_titles=self.search.search_in_titles,
-                highlight_search_results=self.search.highlight_search_results,
-                auto_search_delay=self.search.auto_search_delay,
-            ),
-            sync=SyncSettings(
-                auto_sync_on_startup=self.sync.auto_sync_on_startup,
-                sync_interval=self.sync.sync_interval,
-                sync_days_back=self.sync.sync_days_back,
-                sync_batch_size=self.sync.sync_batch_size,
-                retry_failed_syncs=self.sync.retry_failed_syncs,
-                max_retry_attempts=self.sync.max_retry_attempts,
-            ),
-            export=ExportSettings(
-                default_export_format=self.export.default_export_format,
-                default_export_directory=self.export.default_export_directory,
-                include_metadata=self.export.include_metadata,
-                include_messages=self.export.include_messages,
-                compress_exports=self.export.compress_exports,
-                export_filename_template=self.export.export_filename_template,
-            ),
+            gui=self.gui,
+            search=self.search,
+            sync=self.sync,
+            export=self.export,
+            rate_limit=self.rate_limit,
             log_level=self.log_level,
             enable_debug_mode=self.enable_debug_mode,
-            cache_size_mb=self.cache_size_mb,
+            cache_size_mb=self.cache_size_mb
         )
 
 
@@ -222,11 +271,17 @@ class ConfigManager:
         
         return PoeSearchConfig(
             poe_token=data.get("poe_token", ""),
+            poe_tokens=data.get("poe_tokens", {
+                "p-b": "",
+                "p-lat": "",
+                "formkey": ""
+            }),
             database_url=data.get("database_url", "sqlite:///poe_search.db"),
             gui=GUISettings(**gui_data),
             search=SearchSettings(**search_data),
             sync=SyncSettings(**sync_data),
             export=ExportSettings(**export_data),
+            rate_limit=RateLimitSettings(**data.get("rate_limit", {})),
             log_level=data.get("log_level", "INFO"),
             enable_debug_mode=data.get("enable_debug_mode", False),
             cache_size_mb=data.get("cache_size_mb", 100),
@@ -241,6 +296,7 @@ class ConfigManager:
         data["search"] = asdict(config.search)
         data["sync"] = asdict(config.sync)
         data["export"] = asdict(config.export)
+        data["rate_limit"] = asdict(config.rate_limit)
         
         return data
     
@@ -281,7 +337,7 @@ class ConfigManager:
                 setattr(self.config, key, value)
         
         # Update nested configs
-        for section in ["gui", "search", "sync", "export"]:
+        for section in ["gui", "search", "sync", "export", "rate_limit"]:
             if section in updates:
                 section_data = updates[section]
                 section_config = getattr(self.config, section)
@@ -328,6 +384,30 @@ class ConfigManager:
         self.config.database_url = url
         self.save_config()
         logger.info(f"Database URL updated to {url}")
+
+
+def load_poe_tokens_from_file(path: Optional[Path] = None) -> Dict[str, str]:
+    """
+    Load Poe tokens from a JSON file (default: config/poe_tokens.json).
+    """
+    if path is None:
+        # Try project root config/poe_tokens.json first
+        root_path = Path(__file__).parent.parent.parent.parent / "config" / "poe_tokens.json"
+        src_path = Path(__file__).parent.parent.parent / "config" / "poe_tokens.json"
+        if root_path.exists():
+            path = root_path
+        elif src_path.exists():
+            path = src_path
+        else:
+            logger.warning(f"Could not find poe_tokens.json in either {root_path} or {src_path}")
+            return {"p-b": "", "p-lat": "", "formkey": ""}
+    try:
+        with open(path, "r") as f:
+            tokens = json.load(f)
+        return tokens
+    except Exception as e:
+        logger.warning(f"Could not load Poe tokens from {path}: {e}")
+        return {"p-b": "", "p-lat": "", "formkey": ""}
 
 
 # Global configuration manager instance
@@ -381,3 +461,49 @@ def update_config(updates: Dict[str, Any]) -> None:
         updates: Dictionary of configuration updates
     """
     get_config_manager().update_config(updates)
+
+
+def get_poe_api_key() -> str:
+    """
+    Securely load the Poe API key in this order:
+    1. Environment variable (including .env via python-dotenv)
+    2. OS keyring (system secret store)
+    3. config/secrets.json (legacy fallback)
+    """
+    # 1. Load from .env or environment variable
+    load_dotenv()
+    api_key = os.getenv("POE_API_KEY")
+    if api_key:
+        return api_key
+
+    # 2. Try OS keyring
+    try:
+        api_key = keyring.get_password("poe_search", "poe_api_key")
+        if api_key:
+            return api_key
+    except Exception:
+        pass
+
+    # 3. Fallback: secrets.json
+    secrets_path = Path("config/secrets.json")
+    if secrets_path.exists():
+        try:
+            with open(secrets_path, "r", encoding="utf-8") as f:
+                secrets = json.load(f)
+            api_key = secrets.get("poe_api_key", "")
+            if api_key:
+                return api_key
+        except Exception:
+            pass
+    return ""
+
+
+# User guidance:
+# To set your Poe API key securely, you can:
+# 1. Set the POE_API_KEY environment variable (export POE_API_KEY=...)
+# 2. Add POE_API_KEY=... to a .env file in your project root
+# 3. Store it in your OS keyring using:
+#    import keyring; keyring.set_password(
+#        'poe_search', 'poe_api_key', 'YOUR_KEY')
+# 4. (Legacy) Add it to config/secrets.json as
+#    {"poe_api_key": "YOUR_KEY"}

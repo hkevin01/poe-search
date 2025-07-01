@@ -31,7 +31,7 @@ def main():
     config = load_config()
     
     # Create and show main window
-    window = MainWindow(config)
+    window = MainWindow()
     window.show()
     
     # Run application

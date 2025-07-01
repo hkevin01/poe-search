@@ -1,5 +1,6 @@
-"""API module initialization."""
+"""API module for Poe Search."""
 
-from poe_search.api.client import PoeAPIClient
+from .client import PoeAPIClient
+from .official_client import OfficialPoeAPIClient
 
-__all__ = ["PoeAPIClient"]
+__all__ = ["PoeAPIClient", "OfficialPoeAPIClient"]

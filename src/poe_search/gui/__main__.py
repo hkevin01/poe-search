@@ -2,13 +2,12 @@
 
 import logging
 import sys
-from pathlib import Path
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
-from poe_search import PoeSearchClient
 from poe_search.gui.main_window import MainWindow
 from poe_search.utils.config import load_config
+from poe_search.utils.token_manager import ensure_tokens_on_startup
 
 # Enable debug logging
 logging.basicConfig(
@@ -20,6 +19,7 @@ logging.basicConfig(
     ]
 )
 
+
 def main():
     """Main entry point for the GUI application."""
     # Create Qt application
@@ -27,8 +27,26 @@ def main():
     app.setApplicationName("Poe Search")
     app.setApplicationVersion("1.0.0")
     
+    # Check and refresh tokens on startup
+    success, _ = ensure_tokens_on_startup(
+        interactive=True, max_age_hours=36
+    )
+    
+    if not success:
+        # Show error dialog and exit
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Critical)
+        msg.setWindowTitle("Token Error")
+        msg.setText("Failed to obtain valid Poe.com tokens")
+        msg.setInformativeText(
+            "Please run the token refresh script manually:\n"
+            "python scripts/refresh_tokens.py"
+        )
+        msg.exec()
+        sys.exit(1)
+    
     # Load configuration
-    config = load_config()
+    _ = load_config()
     
     # Create and show main window
     window = MainWindow()
@@ -37,5 +55,6 @@ def main():
     # Run application
     sys.exit(app.exec())
 
+
 if __name__ == "__main__":
-    main() 
+    main()

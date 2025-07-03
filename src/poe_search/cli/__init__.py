@@ -12,6 +12,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from poe_search import PoeSearchClient, __version__
 from poe_search.utils.config import load_config, save_config
+from poe_search.utils.token_manager import ensure_tokens_on_startup
 
 console = Console()
 
@@ -21,11 +22,33 @@ console = Console()
 @click.option("--config", type=click.Path(), help="Configuration file path")
 @click.option("--token", help="Poe authentication token")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
+@click.option("--skip-token-check", is_flag=True,
+              help="Skip automatic token refresh check")
 @click.pass_context
-def main(ctx: click.Context, config: Optional[str], token: Optional[str], verbose: bool):
+def main(ctx: click.Context, config: Optional[str], token: Optional[str],
+         verbose: bool, skip_token_check: bool):
     """Poe Search - Search and organize your Poe.com conversations."""
     # Ensure that ctx.obj exists and is a dict
     ctx.ensure_object(dict)
+    
+    # Set up logging
+    if verbose:
+        import logging
+        logging.basicConfig(level=logging.INFO)
+    
+    # Check tokens on startup unless skipped
+    if not skip_token_check:
+        console.print("🔄 Checking Poe.com authentication tokens...")
+        success, tokens = ensure_tokens_on_startup(
+            interactive=True, max_age_hours=36
+        )
+        
+        if not success:
+            console.print("❌ [red]Failed to obtain valid tokens[/red]")
+            console.print("Run with --skip-token-check to bypass this check")
+            sys.exit(1)
+        else:
+            console.print("✅ [green]Tokens are fresh and ready[/green]")
     
     # Load configuration
     config_path = Path(config) if config else None
@@ -34,11 +57,6 @@ def main(ctx: click.Context, config: Optional[str], token: Optional[str], verbos
     # Override with command line options
     if token:
         cfg["token"] = token
-    
-    # Set up logging
-    if verbose:
-        import logging
-        logging.basicConfig(level=logging.INFO)
     
     # Initialize client
     ctx.obj["client"] = PoeSearchClient(

@@ -386,28 +386,47 @@ class ConfigManager:
         logger.info(f"Database URL updated to {url}")
 
 
-def load_poe_tokens_from_file(path: Optional[Path] = None) -> Dict[str, str]:
+def load_poe_tokens_from_file(
+    force_refresh: bool = False, max_age_hours: int = 36
+) -> Dict[str, str]:
+    """Load Poe.com authentication tokens from file using token manager.
+    
+    Args:
+        force_refresh: Force token refresh even if current tokens are fresh
+        max_age_hours: Maximum age in hours before tokens are considered stale
+        
+    Returns:
+        Dictionary of tokens (p-b, p-lat, formkey) or empty dict if failed
     """
-    Load Poe tokens from a JSON file (default: config/poe_tokens.json).
-    """
-    if path is None:
-        # Try project root config/poe_tokens.json first
-        root_path = Path(__file__).parent.parent.parent.parent / "config" / "poe_tokens.json"
-        src_path = Path(__file__).parent.parent.parent / "config" / "poe_tokens.json"
-        if root_path.exists():
-            path = root_path
-        elif src_path.exists():
-            path = src_path
-        else:
-            logger.warning(f"Could not find poe_tokens.json in either {root_path} or {src_path}")
-            return {"p-b": "", "p-lat": "", "formkey": ""}
     try:
-        with open(path, "r") as f:
-            tokens = json.load(f)
-        return tokens
+        from poe_search.utils.token_manager import TokenManager
+        
+        manager = TokenManager()
+        
+        if force_refresh:
+            # Force interactive refresh
+            logger.info("Forcing token refresh")
+            success = manager.interactive_refresh()
+            if not success:
+                logger.error("Token refresh failed")
+                return {}
+            
+        # Load tokens (will check freshness)
+        tokens = manager.load_tokens()
+        if tokens:
+            # Check if fresh enough
+            if manager.are_tokens_fresh(max_age_hours):
+                return tokens
+            else:
+                logger.warning(f"Tokens are older than {max_age_hours} hours")
+                return {}
+        else:
+            logger.warning("No tokens found")
+            return {}
+            
     except Exception as e:
-        logger.warning(f"Could not load Poe tokens from {path}: {e}")
-        return {"p-b": "", "p-lat": "", "formkey": ""}
+        logger.error(f"Error loading tokens: {e}")
+        return {}
 
 
 # Global configuration manager instance
@@ -436,7 +455,7 @@ def load_config(config_path: Optional[Path] = None) -> PoeSearchConfig:
 
 
 def save_config(
-    config: PoeSearchConfig, 
+    config: PoeSearchConfig,
     config_path: Optional[Path] = None
 ) -> None:
     """Save configuration to file.

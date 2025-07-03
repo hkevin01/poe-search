@@ -172,3 +172,15 @@ config/poe_tokens.json
 # Poe Search secrets and Selenium browser data
 selenium_profile/
 selenium_cache/
+
+# Application data and logs
+data/*.db
+data/*.json
+logs/*.log
+logs/*.log.*
+
+# Development tools (keep structure but ignore temporary files)
+dev-tools/testing/test_results_*.json
+dev-tools/debug/*.png
+dev-tools/debug/temp_*
+dev-tools/utilities/temp_*

@@ -20,6 +20,7 @@ class SyncWorker(QThread):
     conversation_synced = pyqtSignal(dict)  # Synced conversation data
     error_occurred = pyqtSignal(str)  # Error message
     sync_complete = pyqtSignal(dict)  # Sync statistics
+    sync_finished = pyqtSignal()  # Sync operation finished (for compatibility)
     
     def __init__(self, client: PoeSearchClient, days: int = 7,
                  conversation_ids: Optional[List[str]] = None):
@@ -84,6 +85,7 @@ class SyncWorker(QThread):
             if total_conversations == 0:
                 self.progress_updated.emit(100, "No conversations to sync")
                 self.sync_complete.emit(stats)
+                self.sync_finished.emit()  # Signal completion
                 return
             
             # Sync each conversation with rate limiting
@@ -201,14 +203,16 @@ class SyncWorker(QThread):
             # Final progress update
             self.progress_updated.emit(100, "Sync completed")
             
-            # Emit completion signal
+            # Emit completion signals
             self.sync_complete.emit(stats)
+            self.sync_finished.emit()  # Signal for GUI compatibility
             
             logger.info(f"Sync completed: {stats}")
             
         except Exception as e:
             logger.error(f"Sync operation failed: {e}")
             self.error_occurred.emit(str(e))
+            self.sync_finished.emit()  # Signal completion even on error
     
     def get_conversations_from_all_bots(self) -> List[str]:
         """Get conversation IDs from all major bots."""

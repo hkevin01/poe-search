@@ -76,7 +76,7 @@ class TokenManager:
             return None
     
     def save_tokens(self, tokens: Dict[str, str]) -> bool:
-        """Save tokens to file with backup.
+        """Save tokens to file with backup and validation.
         
         Args:
             tokens: Dictionary of tokens to save.
@@ -85,6 +85,12 @@ class TokenManager:
             True if successful, False otherwise.
         """
         try:
+            # Validate tokens before saving
+            if 'formkey' in tokens and tokens['formkey']:
+                if not self.validate_formkey(tokens['formkey']):
+                    logger.error("Cannot save: formkey failed validation")
+                    return False
+            
             # Create backup if file exists
             if self.token_file.exists():
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -210,8 +216,143 @@ class TokenManager:
         
         return None
     
+    def try_extract_formkey_from_browser(self) -> Optional[str]:
+        """Attempt to extract formkey from browser storage/network.
+        
+        This is experimental and may not work reliably due to Poe.com's
+        security measures.
+        
+        Returns:
+            Formkey string if found, None otherwise.
+        """
+        try:
+            import browser_cookie3
+
+            # Try to find formkey in browser storage
+            browsers = [
+                ('chrome', browser_cookie3.chrome),
+                ('firefox', browser_cookie3.firefox),
+                ('edge', browser_cookie3.edge),
+            ]
+            
+            for browser_name, browser_func in browsers:
+                try:
+                    cookies = browser_func(domain_name='poe.com')
+                    cookie_dict = {
+                        cookie.name: cookie.value for cookie in cookies
+                    }
+                    
+                    # Look for any cookies that might contain formkey
+                    potential_keys = [
+                        'formkey', 'poe-formkey', 'Poe-Formkey',
+                        'poe_formkey', '_formkey'
+                    ]
+                    
+                    for key in potential_keys:
+                        if key in cookie_dict and cookie_dict[key]:
+                            msg = f"Found potential formkey in {browser_name}"
+                            logger.info(msg)
+                            return cookie_dict[key]
+                
+                except Exception as e:
+                    msg = f"Could not check {browser_name} for formkey: {e}"
+                    logger.debug(msg)
+                    continue
+                    
+        except ImportError:
+            msg = "browser_cookie3 not available for formkey extraction"
+            logger.debug(msg)
+        
+        return None
+    
+    def get_enhanced_formkey_instructions(self) -> str:
+        """Provide enhanced step-by-step formkey extraction instructions."""
+        instructions = f"""
+{'-'*60}
+ENHANCED FORMKEY EXTRACTION GUIDE
+{'-'*60}
+
+The formkey is required for API authentication and changes frequently.
+Here's the easiest way to get it:
+
+METHOD 1 - Quick Network Tab Method (Recommended):
+1. Open https://poe.com in your browser
+2. Log in if needed
+3. Press F12 to open Developer Tools
+4. Click the 'Network' tab
+5. Clear network log (🚫 icon or Ctrl+L)
+6. Type any message to any bot and send it
+7. Look for a request to '/api/gql_POST'
+8. Click on it → Headers → Request Headers
+9. Find 'Poe-Formkey: ...' and copy the value
+
+METHOD 2 - Console Method (Advanced):
+1. Open https://poe.com in your browser
+2. Press F12 → Console tab
+3. Type: document.querySelector('meta[name="formkey"]')?.content
+4. Press Enter - if this shows a value, that's your formkey
+
+METHOD 3 - Page Source Method:
+1. On poe.com, right-click → View Page Source
+2. Search for 'formkey' or 'Poe-Formkey'
+3. Look for <meta name="formkey" content="...">
+
+The formkey typically looks like a long string of letters and numbers.
+Example format: 1a2b3c4d5e6f7g8h9i0j...
+
+{'-'*60}
+"""
+        return instructions
+    
+    def validate_formkey(self, formkey: str) -> bool:
+        """Validate that a formkey is safe and properly formatted.
+        
+        Args:
+            formkey: The formkey string to validate.
+            
+        Returns:
+            True if formkey is valid and safe, False otherwise.
+        """
+        if not formkey or not isinstance(formkey, str):
+            return False
+            
+        # Strip whitespace
+        formkey = formkey.strip()
+        
+        # Check minimum length
+        if len(formkey) < 10:
+            return False
+            
+        # Check for dangerous patterns
+        dangerous_patterns = [
+            'pkill', 'kill', 'rm ', 'del ', 'format',
+            'shutdown', 'reboot', 'halt', '&&', '||',
+            ';', '|', '>', '<', '$', '`', 'eval',
+            'exec', 'system', 'subprocess', 'os.',
+            'import ', 'from ', 'def ', 'class ',
+            'http://', 'https://', 'ftp://', 'file://',
+            'javascript:', 'data:', 'vbscript:',
+            '<script', '</script>', '<iframe', 'onerror=',
+            'onload=', 'onclick=', 'document.', 'window.',
+            'alert(', 'confirm(', 'prompt('
+        ]
+        
+        formkey_lower = formkey.lower()
+        for pattern in dangerous_patterns:
+            if pattern in formkey_lower:
+                logger.error(f"Dangerous pattern '{pattern}' found in formkey")
+                return False
+        
+        # Formkey should be alphanumeric with some special chars
+        import re
+        if not re.match(r'^[a-zA-Z0-9_\-+=/.]{10,200}$', formkey):
+            logger.error("Formkey contains invalid characters")
+            return False
+            
+        return True
+
     def prompt_for_formkey(self) -> str:
-        """Prompt user for formkey input.
+        """Prompt user for formkey input with enhanced guidance.
         
         Returns:
             Formkey string entered by user.
@@ -219,17 +360,47 @@ class TokenManager:
         print("\n" + "="*60)
         print("FORMKEY REQUIRED")
         print("="*60)
-        print("The formkey could not be extracted automatically.")
-        print("Please follow these steps to get it:")
-        print()
-        print("1. Open https://poe.com in your browser")
-        print("2. Open Developer Tools (F12)")
-        print("3. Go to 'Network' tab")
-        print("4. Refresh the page or send a message")
-        print("5. Look for GraphQL requests")
-        print("6. In request headers, find 'Poe-Formkey'")
-        print()
-        return input("Enter the 'Poe-Formkey' value: ").strip()
+        
+        # Try to extract automatically first
+        print("Attempting automatic formkey extraction...")
+        auto_formkey = self.try_extract_formkey_from_browser()
+        
+        if auto_formkey:
+            print("✅ Found potential formkey automatically!")
+            print(f"Formkey preview: {auto_formkey[:20]}...")
+            
+            while True:
+                use_auto = input("\nUse this formkey? (y/n): ").strip().lower()
+                if use_auto in ['y', 'yes']:
+                    return auto_formkey
+                elif use_auto in ['n', 'no']:
+                    break
+                else:
+                    print("Please enter 'y' or 'n'")
+        else:
+            print("❌ Could not extract formkey automatically")
+        
+        # Show enhanced instructions
+        print(self.get_enhanced_formkey_instructions())
+        
+        while True:
+            formkey = input("Enter the 'Poe-Formkey' value: ").strip()
+            
+            if not formkey:
+                print("❌ Formkey cannot be empty")
+                continue
+            
+            # Use strict validation
+            if not self.validate_formkey(formkey):
+                print("❌ Invalid or potentially unsafe formkey")
+                print("   Formkey should be alphanumeric with basic chars")
+                print("   and should not contain commands, URLs, or scripts")
+                retry = input("Try again? (y/n): ").strip().lower()
+                if retry not in ['y', 'yes']:
+                    continue
+                continue
+                
+            return formkey
     
     def interactive_refresh(self) -> bool:
         """Perform interactive token refresh with user prompts.
@@ -270,9 +441,22 @@ class TokenManager:
         # Validate tokens
         required_keys = ['p-b', 'p-lat', 'formkey']
         for key in required_keys:
-            if not tokens.get(key) or len(tokens[key]) < 10:
-                print(f"❌ Invalid {key} token (too short or empty)")
+            if not tokens.get(key):
+                print(f"❌ Missing {key} token")
                 return False
+                
+        # Validate each token type
+        if len(tokens['p-b']) < 10:
+            print("❌ Invalid p-b token (too short)")
+            return False
+            
+        if len(tokens['p-lat']) < 10:
+            print("❌ Invalid p-lat token (too short)")
+            return False
+            
+        if not self.validate_formkey(tokens['formkey']):
+            print("❌ Invalid or unsafe formkey")
+            return False
         
         # Test tokens
         print("\nTesting tokens...")

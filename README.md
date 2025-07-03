@@ -183,3 +183,36 @@ conversations = client.get_conversations(bot="claude", days=30)
 # Export data
 client.export_conversations("output.json", format="json")
 ```
+
+## 📁 Project Structure
+
+```
+poe-search/
+├── src/poe_search/           # Main application source code
+│   ├── gui/                  # PyQt6 GUI components
+│   ├── cli/                  # Command-line interface
+│   ├── api/                  # Poe.com API client
+│   ├── database/             # SQLite database management
+│   └── utils/                # Utilities and helpers
+├── scripts/                  # Automation and utility scripts
+├── config/                   # Configuration files
+│   └── poe_tokens.json      # Authentication tokens (gitignored)
+├── dev-tools/               # Development utilities (organized)
+│   ├── testing/             # Test scripts and validation
+│   ├── debug/               # Debugging tools and demos  
+│   └── utilities/           # Development helper scripts
+├── data/                    # Runtime data (gitignored)
+│   ├── *.db                 # SQLite databases
+│   └── *.json               # Backup files
+├── logs/                    # Application logs (gitignored)
+├── docs/                    # Documentation
+└── tests/                   # Unit and integration tests
+```
+
+### Clean Organization
+
+The project has been organized to keep the root directory clean:
+- **Development files** moved to `dev-tools/` with sub-categorization
+- **Runtime data** isolated in `data/` directory
+- **Log files** collected in `logs/` directory
+- **Configuration** kept in dedicated `config/` directory

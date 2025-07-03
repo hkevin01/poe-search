@@ -7,8 +7,8 @@ from typing import Optional
 
 import click
 from rich.console import Console
-from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 
 from poe_search import PoeSearchClient, __version__
 from poe_search.utils.config import load_config, save_config

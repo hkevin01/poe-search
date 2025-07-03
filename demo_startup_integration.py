@@ -25,7 +25,7 @@ def simulate_app_startup(app_name: str = "Poe Search Demo"):
     
     try:
         from poe_search.utils.token_manager import ensure_tokens_on_startup
-        
+
         # Step 1: Application initialization
         print("🚀 Step 1: Application initialization...")
         print(f"   - Starting {app_name}")

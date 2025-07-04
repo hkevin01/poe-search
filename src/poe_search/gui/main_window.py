@@ -2,13 +2,13 @@
 
 import json
 import logging
-import psutil
 import sys
 import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import psutil
 from PyQt6.QtCore import QDate, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QBrush, QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
@@ -47,6 +47,7 @@ from poe_search.gui.widgets.analytics_widget import AnalyticsWidget
 from poe_search.gui.widgets.category_widget import CategoryWidget
 from poe_search.gui.widgets.conversation_widget import ConversationWidget
 from poe_search.gui.widgets.search_widget import SearchWidget
+from poe_search.gui.workers.categorization_worker import CategoryWorker
 from poe_search.gui.workers.search_worker import SearchWorker
 from poe_search.gui.workers.sync_worker import SyncWorker
 from poe_search.storage.database import Database
@@ -388,8 +389,16 @@ class MainWindow(QMainWindow):
                 return
             
             # Initialize the API client
-            from poe_search.api.client import PoeAPIClient
-            self.api_client = PoeAPIClient(tokens)
+            # Set the tokens in the config for the PoeSearchClient to use
+            if tokens:
+                # Convert None values to empty strings for type safety
+                clean_tokens = {k: v or "" for k, v in tokens.items()}
+                self.config.poe_tokens = clean_tokens
+            
+            self.client = PoeSearchClient(config=self.config, database_url="sqlite:///poe_search.db")
+            
+            # Get the underlying API client for direct API calls
+            self.api_client = self.client.api_client
             
             # Test the connection
             try:
@@ -403,18 +412,16 @@ class MainWindow(QMainWindow):
                     logger.warning("Connected to Poe.com but user info not available")
                 
                 # Enable sync functionality
-                self.sync_worker = SyncWorker(self.api_client)
+                self.sync_worker = SyncWorker(self.client)
                 self.sync_worker.sync_finished.connect(self.on_sync_finished)
                 self.sync_worker.sync_error.connect(self.on_sync_error)
                 
-                # Enable search functionality
-                self.search_worker = SearchWorker(self.api_client)
-                self.search_worker.search_finished.connect(self.on_search_finished)
-                self.search_worker.search_error.connect(self.on_search_error)
+                # Note: SearchWorker will be created when needed during actual searches
+                # since it requires search_params and database which aren't available here
                 
                 # Enable categorization
-                self.categorization_worker = CategorizationWorker()
-                self.categorization_worker.categorization_finished.connect(self.on_categorization_finished)
+                self.categorization_worker = CategoryWorker(self.client)
+                self.categorization_worker.categorization_complete.connect(self.on_categorization_complete)
                 
                 # Load existing conversations
                 self.load_conversations()
@@ -667,11 +674,11 @@ class MainWindow(QMainWindow):
             self.progress_bar.setRange(0, 0)
             
             # Create and start sync worker with database
-            self.sync_worker = SyncWorker(self.api_client, days=7)
+            self.sync_worker = SyncWorker(self.client, days=7)
             self.sync_worker.progress_updated.connect(self.on_sync_progress)
             self.sync_worker.sync_complete.connect(self.on_sync_complete)
-            self.sync_worker.error_occurred.connect(self.on_sync_error)
-            self.sync_worker.finished.connect(self.on_sync_finished)
+            self.sync_worker.sync_error.connect(self.on_sync_error)
+            self.sync_worker.sync_finished.connect(self.on_sync_finished)
             self.sync_worker.start()
             
         except Exception as e:
@@ -1466,3 +1473,40 @@ class MainWindow(QMainWindow):
                     
         except Exception as e:
             self.logger.error(f"Error setting up database for widgets: {e}")
+    
+    def on_categorization_complete(self, stats: dict):
+        """Handle categorization completion.
+        
+        Args:
+            stats: Categorization statistics
+        """
+        self.logger.info(f"Categorization completed: {stats}")
+        if hasattr(self, 'categorization_worker') and self.categorization_worker:
+            self.categorization_worker.deleteLater()
+            self.categorization_worker = None
+
+    def load_conversations(self):
+        """Load existing conversations from database.
+        
+        This method loads conversations and populates the conversation widget.
+        """
+        try:
+            self.logger.info("Loading existing conversations...")
+            # This will be implemented when the conversation loading logic is needed
+            # For now, we'll just log that the method was called
+            self.logger.info("Conversation loading placeholder called")
+        except Exception as e:
+            self.logger.error(f"Error loading conversations: {e}")
+    
+    def start_sync(self):
+        """Start initial sync of conversations.
+        
+        This method starts the background sync process.
+        """
+        try:
+            self.logger.info("Starting initial sync...")
+            # For now, just log that initial sync was requested
+            # The actual sync will be triggered by user actions
+            self.logger.info("Initial sync placeholder called")
+        except Exception as e:
+            self.logger.error(f"Error starting sync: {e}")

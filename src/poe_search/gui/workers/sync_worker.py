@@ -19,6 +19,7 @@ class SyncWorker(QThread):
     progress_updated = pyqtSignal(int, str)  # Progress percentage, status message
     conversation_synced = pyqtSignal(dict)  # Synced conversation data
     error_occurred = pyqtSignal(str)  # Error message
+    sync_error = pyqtSignal(str)  # Sync error (for GUI compatibility)
     sync_complete = pyqtSignal(dict)  # Sync statistics
     sync_finished = pyqtSignal()  # Sync operation finished (for compatibility)
     
@@ -212,6 +213,7 @@ class SyncWorker(QThread):
         except Exception as e:
             logger.error(f"Sync operation failed: {e}")
             self.error_occurred.emit(str(e))
+            self.sync_error.emit(str(e))  # For GUI compatibility
             self.sync_finished.emit()  # Signal completion even on error
     
     def get_conversations_from_all_bots(self) -> List[str]:

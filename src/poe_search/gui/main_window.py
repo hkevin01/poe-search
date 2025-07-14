@@ -49,7 +49,7 @@ from poe_search.gui.widgets.conversation_widget import ConversationWidget
 from poe_search.gui.widgets.search_widget import SearchWidget
 from poe_search.gui.workers.categorization_worker import CategoryWorker
 from poe_search.gui.workers.search_worker import SearchWorker
-from poe_search.gui.workers.sync_worker import SyncWorker
+from poe_search.workers.sync_worker import SyncWorker
 from poe_search.storage.database import Database
 from poe_search.utils.config import load_config
 
@@ -716,11 +716,29 @@ class MainWindow(QMainWindow):
             self.progress_bar.setRange(0, 0)
             
             # Create and start sync worker with database
-            self.sync_worker = SyncWorker(self.client, days=7)
-            self.sync_worker.progress_updated.connect(self.on_sync_progress)
-            self.sync_worker.sync_complete.connect(self.on_sync_complete)
-            self.sync_worker.sync_error.connect(self.on_sync_error)
-            self.sync_worker.sync_finished.connect(self.on_sync_finished)
+            if not hasattr(self, 'config') or not self.config.poe_tokens:
+                QMessageBox.warning(self, "Error", "No Poe credentials available.")
+                self.progress_bar.setVisible(False)
+                return
+                
+            credentials = {
+                'formkey': self.config.poe_tokens.get('formkey', ''),
+                'p_b_cookie': self.config.poe_tokens.get('p_b', '')
+            }
+            
+            if not credentials['formkey'] or not credentials['p_b_cookie']:
+                QMessageBox.warning(self, "Error", "Missing Poe credentials.")
+                self.progress_bar.setVisible(False)
+                return
+                
+            from ..storage.database_manager import DatabaseManager
+            db_manager = DatabaseManager(self.database.db_path)
+            
+            self.sync_worker = SyncWorker(db_manager, credentials)
+            self.sync_worker.progress.connect(self.on_sync_progress_new)
+            self.sync_worker.status_update.connect(self.on_sync_status_new)
+            self.sync_worker.error.connect(self.on_sync_error_new)
+            self.sync_worker.finished.connect(self.on_sync_finished_new)
             self.sync_worker.start()
             
         except Exception as e:
@@ -729,52 +747,40 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Sync Error", f"Failed to start sync: {e}")
             self.progress_bar.setVisible(False)
     
-    def on_sync_progress(self, progress: int, status: str):
-        """Handle sync progress updates.
-        
-        Args:
-            progress: Progress percentage (0-100)
-            status: Status message
-        """
-        self.progress_bar.setValue(progress)
-        self.status_label.setText(f"Syncing: {status}")
-    
-    def on_sync_complete(self, stats: Dict[str, int]):
-        """Handle sync completion.
-        
-        Args:
-            stats: Sync statistics
-        """
-        message = f"Sync complete! New: {stats['new']}, Updated: {stats['updated']}"
-        self.status_label.setText(message)
-        self.logger.info(message)
-        self.log_operation_end("sync", success=True)
-        QMessageBox.information(self, "Sync Complete", message)
-        
-        # Refresh data in all widgets
-        try:
-            self.refresh_data()
-            self.logger.info("UI refreshed after sync.")
-        except Exception as e:
-            self.logger.error(f"Error refreshing UI after sync: {e}")
-            QMessageBox.warning(self, "Refresh Error", f"Failed to refresh UI after sync: {e}")
-    
-    def on_sync_error(self, error: str):
-        """Handle sync error with detailed dialog."""
+    def on_sync_progress_new(self, progress: int):
+        """Handle new sync worker progress updates."""
+        if hasattr(self, 'progress_bar') and self.progress_bar:
+            self.progress_bar.setValue(progress)
+
+    def on_sync_status_new(self, status: str):
+        """Handle new sync worker status updates."""
+        if hasattr(self, 'status_label') and self.status_label:
+            self.status_label.setText(status)
+        self.logger.info(f"Sync status: {status}")
+
+    def on_sync_error_new(self, error: str):
+        """Handle new sync worker errors."""
         self.logger.error(f"Sync error: {error}")
         self.log_operation_end("sync", success=False)
-        import traceback
-        tb = traceback.format_exc()
-        self.show_detailed_error("Sync Error", error, tb)
-        self.status_label.setText("Sync failed")
-    
-    def on_sync_finished(self):
-        """Handle sync completion."""
-        self.progress_bar.setVisible(False)
+        QMessageBox.critical(self, "Sync Error", f"Sync failed: {error}")
+        if hasattr(self, 'progress_bar') and self.progress_bar:
+            self.progress_bar.setVisible(False)
+
+    def on_sync_finished_new(self):
+        """Handle new sync worker completion."""
+        self.logger.info("Sync completed successfully")
+        self.log_operation_end("sync", success=True)
+        if hasattr(self, 'status_label') and self.status_label:
+            self.status_label.setText("Sync completed")
+        if hasattr(self, 'progress_bar') and self.progress_bar:
+            self.progress_bar.setVisible(False)
+        # Refresh the conversation list
+        self.load_conversations()
+        # Clean up worker
         if hasattr(self, 'sync_worker') and self.sync_worker:
             self.sync_worker.deleteLater()
             self.sync_worker = None
-    
+
     def refresh_data(self):
         """Refresh all data in the application."""
         try:
@@ -1534,9 +1540,19 @@ class MainWindow(QMainWindow):
         """
         try:
             self.logger.info("Loading existing conversations...")
-            # This will be implemented when the conversation loading logic is needed
-            # For now, we'll just log that the method was called
-            self.logger.info("Conversation loading placeholder called")
+            
+            if not hasattr(self, 'database') or not self.database:
+                self.logger.warning("No database available for loading conversations")
+                return
+                
+            # Get conversations from database
+            conversations = self.database.get_conversations()
+            self.logger.info(f"Loaded {len(conversations)} conversations from database")
+            
+            # Update conversation widget if available
+            if hasattr(self, 'conversation_widget') and self.conversation_widget:
+                self.conversation_widget.load_conversations(conversations)
+                
         except Exception as e:
             self.logger.error(f"Error loading conversations: {e}")
     
@@ -1547,8 +1563,77 @@ class MainWindow(QMainWindow):
         """
         try:
             self.logger.info("Starting initial sync...")
-            # For now, just log that initial sync was requested
-            # The actual sync will be triggered by user actions
-            self.logger.info("Initial sync placeholder called")
+            
+            # Check if we have credentials available
+            if not hasattr(self, 'config') or not self.config.poe_tokens:
+                self.logger.warning("No Poe tokens available for sync")
+                return
+                
+            # Get credentials from config
+            credentials = {
+                'formkey': self.config.poe_tokens.get('formkey', ''),
+                'p_b_cookie': self.config.poe_tokens.get('p_b', '')
+            }
+            
+            # Validate credentials
+            if not credentials['formkey'] or not credentials['p_b_cookie']:
+                self.logger.warning("Missing required credentials for sync")
+                return
+                
+            # Check if database is available
+            if not hasattr(self, 'database') or not self.database:
+                self.logger.warning("No database available for sync")
+                return
+                
+            # Stop any existing sync worker
+            if hasattr(self, 'initial_sync_worker') and self.initial_sync_worker.isRunning():
+                self.initial_sync_worker.stop()
+                self.initial_sync_worker.wait()
+                
+            # Create and start new sync worker
+            from ..storage.database_manager import DatabaseManager
+            db_manager = DatabaseManager(self.database.db_path)
+            
+            self.initial_sync_worker = SyncWorker(db_manager, credentials)
+            self.initial_sync_worker.progress.connect(self.on_initial_sync_progress)
+            self.initial_sync_worker.status_update.connect(self.on_initial_sync_status)
+            self.initial_sync_worker.error.connect(self.on_initial_sync_error)
+            self.initial_sync_worker.finished.connect(self.on_initial_sync_finished)
+            self.initial_sync_worker.conversation_synced.connect(self.on_conversation_synced)
+            
+            self.logger.info("Starting initial sync worker...")
+            self.initial_sync_worker.start()
+            
         except Exception as e:
             self.logger.error(f"Error starting sync: {e}")
+            
+    def on_initial_sync_progress(self, progress: int):
+        """Handle initial sync progress updates."""
+        if hasattr(self, 'progress_bar') and self.progress_bar:
+            self.progress_bar.setValue(progress)
+            
+    def on_initial_sync_status(self, status: str):
+        """Handle initial sync status updates."""
+        if hasattr(self, 'status_label') and self.status_label:
+            self.status_label.setText(status)
+        self.logger.info(f"Sync status: {status}")
+        
+    def on_initial_sync_error(self, error: str):
+        """Handle initial sync errors."""
+        self.logger.error(f"Initial sync error: {error}")
+        if hasattr(self, 'status_label') and self.status_label:
+            self.status_label.setText(f"Sync error: {error}")
+            
+    def on_initial_sync_finished(self):
+        """Handle initial sync completion."""
+        self.logger.info("Initial sync completed")
+        if hasattr(self, 'status_label') and self.status_label:
+            self.status_label.setText("Sync completed")
+        if hasattr(self, 'progress_bar') and self.progress_bar:
+            self.progress_bar.setVisible(False)
+        # Refresh the conversation list
+        self.load_conversations()
+        
+    def on_conversation_synced(self, conversation: dict):
+        """Handle individual conversation sync completion."""
+        self.logger.debug(f"Conversation synced: {conversation.get('title', 'Unknown')}")

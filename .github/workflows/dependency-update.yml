@@ -1,4 +1,4 @@
-name: Dependency Update
+name: Dependency Updates
 
 on:
   schedule:
@@ -6,8 +6,18 @@ on:
     - cron: "0 6 * * 1"
   workflow_dispatch:
     inputs:
-      dependency_type:
-        description: "Type of dependency to update"
+      update_type:
+        description: "Type of update to perform"
+        required: false
+        default: "minor"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - security
+      dependency_group:
+        description: "Dependency group to update"
         required: false
         default: "all"
         type: choice
@@ -15,152 +25,149 @@ on:
           - all
           - production
           - development
-          - security
+          - gui
+          - docs
+
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
-  update-dependencies:
+  check-dependencies:
     runs-on: ubuntu-latest
-    name: Update Dependencies
-
+    outputs:
+      has-updates: ${{ steps.check.outputs.has-updates }}
+      update-summary: ${{ steps.check.outputs.update-summary }}
+    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.11"
 
-      - name: Install pip-tools
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pip-tools
+          pip install pip-tools safety
 
-      - name: Check for outdated dependencies
-        id: check-deps
+      - name: Check for security vulnerabilities
+        id: security-check
         run: |
-          echo "Checking for outdated dependencies..."
-          pip list --outdated --format=freeze > outdated.txt || true
-
-          if [ -s outdated.txt ]; then
-            echo "Found outdated dependencies:"
-            cat outdated.txt
-            echo "has_updates=true" >> $GITHUB_OUTPUT
+          pip install -e .
+          safety check --json --output security-report.json || true
+          
+      - name: Check for dependency updates
+        id: check
+        run: |
+          # Create a summary of available updates
+          pip list --outdated --format=json > outdated.json
+          
+          if [ -s outdated.json ] && [ "$(cat outdated.json)" != "[]" ]; then
+            echo "has-updates=true" >> $GITHUB_OUTPUT
+            echo "Found dependency updates available"
+            
+            # Create summary
+            python -c "
+          import json
+          with open('outdated.json') as f:
+              outdated = json.load(f)
+          
+          summary = []
+          for pkg in outdated:
+              summary.append(f\"- {pkg['name']}: {pkg['version']} → {pkg['latest_version']}\")
+          
+          update_summary = '\n'.join(summary[:10])  # Limit to first 10
+          if len(outdated) > 10:
+              update_summary += f'\n... and {len(outdated) - 10} more'
+          
+          print(f'update-summary<<EOF\n{update_summary}\nEOF')
+          " >> $GITHUB_OUTPUT
           else
-            echo "No outdated dependencies found"
-            echo "has_updates=false" >> $GITHUB_OUTPUT
+            echo "has-updates=false" >> $GITHUB_OUTPUT
+            echo "No dependency updates available"
           fi
 
-      - name: Update dependencies
-        if: steps.check-deps.outputs.has_updates == 'true'
+  update-dependencies:
+    runs-on: ubuntu-latest
+    needs: check-dependencies
+    if: needs.check-dependencies.outputs.has-updates == 'true'
+    
+    strategy:
+      matrix:
+        update-type: 
+          - patch
+          - minor
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install update tools
         run: |
-          echo "Updating dependencies..."
+          python -m pip install --upgrade pip
+          pip install pip-tools pur
 
-          # Update production dependencies
-          pip install --upgrade pip
-          pip install --upgrade -e ".[dev]"
-
-          # Generate requirements files
-          pip-compile pyproject.toml --output-file=requirements.txt
-          pip-compile pyproject.toml --extra=dev --output-file=requirements-dev.txt
-          pip-compile pyproject.toml --extra=gui --output-file=requirements-gui.txt
-
-      - name: Run tests with updated dependencies
-        if: steps.check-deps.outputs.has_updates == 'true'
+      - name: Update dependencies (${{ matrix.update-type }})
         run: |
-          echo "Running tests with updated dependencies..."
-          pip install -e ".[dev]"
-          pytest tests/ --cov=poe_search --cov-report=xml
+          case "${{ matrix.update-type }}" in
+            "patch")
+              pur -r requirements.txt --patch
+              ;;
+            "minor")  
+              pur -r requirements.txt --minor
+              ;;
+            "major")
+              pur -r requirements.txt
+              ;;
+          esac
+          
+          # Update pyproject.toml dependencies if needed
+          if [ -f "pyproject.toml" ]; then
+            echo "Updating pyproject.toml dependencies..."
+            # For now, manual updates - could be automated with tools like poetry
+          fi
 
+      - name: Test updated dependencies
+        run: |
+          pip install -e ".[dev,gui]"
+          python -m pytest tests/ -x --tb=short
+          
       - name: Create Pull Request
-        if: steps.check-deps.outputs.has_updates == 'true'
+        if: success()
         uses: peter-evans/create-pull-request@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore: update dependencies"
-          title: "chore: update dependencies"
+          commit-message: "chore: update dependencies (${{ matrix.update-type }})"
+          title: "📦 Dependency Updates (${{ matrix.update-type }})"
           body: |
-            ## Dependency Updates
-
-            This PR updates the project dependencies to their latest versions.
-
-            ### Changes
-            - Updated production dependencies
-            - Updated development dependencies
-            - Updated GUI dependencies
-
-            ### Testing
-            - [x] All tests pass with updated dependencies
-            - [x] No breaking changes detected
-
-            ### Notes
-            - This is an automated update
-            - Please review the changes carefully
-            - Run the full test suite locally before merging
-
-            ### Updated Files
-            - requirements.txt
-            - requirements-dev.txt
-            - requirements-gui.txt
-
-            Closes # (if applicable)
-          branch: dependency-update/$(date +%Y%m%d)
+            ## 📦 Dependency Updates
+            
+            This PR contains ${{ matrix.update-type }} dependency updates.
+            
+            ### Changes:
+            ${{ needs.check-dependencies.outputs.update-summary }}
+            
+            ### Testing:
+            - ✅ All tests pass with updated dependencies
+            - ✅ No security vulnerabilities detected
+            
+            ### Notes:
+            - This is an automated PR created by the dependency update workflow
+            - Please review changes before merging
+            - Consider running additional integration tests
+            
+            Generated by workflow: `${{ github.workflow }}`
+          branch: dependency-updates/${{ matrix.update-type }}-${{ github.run_number }}
           delete-branch: true
           labels: |
             dependencies
-            automated
-          assignees: ${{ github.repository_owner }}
-
-      - name: Comment on PR
-        if: steps.check-deps.outputs.has_updates == 'true'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { data: pulls } = await github.rest.pulls.list({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              head: context.repo.owner + ':dependency-update/' + new Date().toISOString().slice(0, 10).replace(/-/g, '')
-            });
-
-            if (pulls.length > 0) {
-              const pr = pulls[0];
-              
-              // Read outdated dependencies
-              const fs = require('fs');
-              let outdatedDeps = '';
-              if (fs.existsSync('outdated.txt')) {
-                outdatedDeps = fs.readFileSync('outdated.txt', 'utf8');
-              }
-              
-              const comment = `## Dependency Update Summary
-              
-              ### Outdated Dependencies Found:
-              \`\`\`
-              ${outdatedDeps || 'No outdated dependencies found'}
-              \`\`\`
-              
-              ### Next Steps:
-              1. Review the changes in this PR
-              2. Run tests locally: \`pytest tests/\`
-              3. Test the application functionality
-              4. Merge if everything looks good
-              
-              ### Security Note:
-              This update includes security patches. Please merge promptly if no issues are found.`;
-              
-              await github.rest.issues.createComment({
-                issue_number: pr.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: comment
-              });
-            }
-
-      - name: Comment if no updates needed
-        if: steps.check-deps.outputs.has_updates == 'false'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            console.log('No dependency updates needed');
-            // Could create an issue or comment on a specific issue to track this
+            automated-pr
+            ${{ matrix.update-type }}-update

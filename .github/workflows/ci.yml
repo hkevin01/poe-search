@@ -1,17 +1,108 @@
-name: CI
+name: CI/CD Pipeline
 
 on:
   push:
     branches: [main, develop]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+      - ".gitignore"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+      - ".gitignore"
+  workflow_dispatch:
+
+env:
+  PYTHON_DEFAULT_VERSION: "3.11"
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.changes.outputs.python }}
+      docs: ${{ steps.changes.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            python:
+              - 'src/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'requirements*.txt'
+            docs:
+              - 'docs/**'
+              - 'mkdocs.yml'
+
+  lint:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_DEFAULT_VERSION }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-lint-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-lint-
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint with ruff
+        run: ruff check src/ tests/ --output-format=github
+
+      - name: Format check with black
+        run: black --check --diff src/ tests/
+
+      - name: Sort imports check
+        run: isort --check-only --diff src/ tests/
+
+      - name: Type check with mypy
+        run: mypy src/poe_search/ --show-error-codes
+
+      - name: Security check with bandit
+        run: bandit -r src/ -f json -o bandit-report.json
+        continue-on-error: true
+
+      - name: Upload security report
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-report
+          path: bandit-report.json
   test:
     runs-on: ubuntu-latest
+    needs: [changes, lint]
+    if: needs.changes.outputs.python == 'true'
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        exclude:
+          # Reduce matrix size for faster builds
+          - os: windows-latest
+            python-version: "3.8"
+          - os: macos-latest
+            python-version: "3.8"
 
     steps:
       - uses: actions/checkout@v4
@@ -24,33 +115,43 @@ jobs:
       - name: Cache pip dependencies
         uses: actions/cache@v3
         with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
+          path: |
+            ~/.cache/pip
+            ~/.cache/pipenv
+          key: ${{ runner.os }}-py${{ matrix.python-version }}-pip-${{ hashFiles('**/pyproject.toml') }}
           restore-keys: |
+            ${{ runner.os }}-py${{ matrix.python-version }}-pip-
             ${{ runner.os }}-pip-
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-
-      - name: Lint with ruff
-        run: |
-          ruff check src/ tests/
-
-      - name: Format check with black
-        run: |
-          black --check src/ tests/
-
-      - name: Type check with mypy
-        run: |
-          mypy src/poe_search/
+          pip install -e ".[dev,gui]"
 
       - name: Test with pytest
         run: |
-          pytest tests/ --cov=poe_search --cov-report=xml --cov-report=term-missing
+          pytest tests/ \
+            --cov=poe_search \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=80 \
+            --junitxml=test-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: test-results.xml
 
       - name: Upload coverage to Codecov
+        if: matrix.python-version == env.PYTHON_DEFAULT_VERSION && matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@v3
         with:
           file: ./coverage.xml
@@ -60,26 +161,65 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, lint]
+    if: always() && (needs.test.result == 'success' || needs.test.result == 'skipped') && (needs.lint.result == 'success' || needs.lint.result == 'skipped')
 
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for proper versioning
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_DEFAULT_VERSION }}
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Build package
+        run: python -m build
+
+      - name: Check package
+        run: twine check dist/*
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: python-package
+          path: dist/
+          retention-days: 30
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'pull_request'
+    
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_DEFAULT_VERSION }}
 
-      - name: Install build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install build
-
-      - name: Build package
-        run: python -m build
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
         with:
-          name: dist
+          name: python-package
           path: dist/
+
+      - name: Install package from wheel
+        run: |
+          pip install --find-links dist/ poe-search[gui]
+
+      - name: Test CLI installation
+        run: |
+          poe-search --help
+          poe-search --version
+
+      - name: Test GUI components (headless)
+        run: |
+          python -c "from poe_search.gui import main; print('GUI imports successfully')"

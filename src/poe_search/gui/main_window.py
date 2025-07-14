@@ -69,16 +69,54 @@ class MainWindow(QMainWindow):
         """
         super().__init__()
         
-        # Initialize logging
-        logging.basicConfig(level=logging.INFO)
+        # Initialize logging (don't use basicConfig as it may conflict)
         self.logger = logging.getLogger(__name__)
+        self.logger.info("=== MainWindow initialization started ===")
         
         # Load configuration
+        self.logger.info("Loading configuration...")
         self.config = load_config()
+        self.logger.info("Configuration loaded successfully")
         
-        # Initialize database
-        self.database = Database("sqlite:///poe_search.db")
-        self.logger.info("Database initialized")
+        # Initialize database - use data directory for consistency
+        try:
+            self.logger.info("Starting database initialization...")
+            db_path = Path(__file__).parent.parent.parent / "data" / "poe_search.db"
+            resolved_db_path = db_path.resolve()
+            self.logger.info(f"Database path calculated: {db_path}")
+            self.logger.info(f"Database resolved path: {resolved_db_path}")
+            self.logger.info(f"Database file exists: {resolved_db_path.exists()}")
+            
+            self.database = Database(str(db_path))
+            self.logger.info("Database object created successfully")
+            
+            # Test database access immediately
+            test_conversations = self.database.get_conversations()
+            self.logger.info(f"Database test: {len(test_conversations)} conversations found")
+            
+            if len(test_conversations) == 0:
+                self.logger.warning("Database test found 0 conversations - this may indicate an issue")
+                # Try to list tables to see if database is properly initialized
+                try:
+                    import sqlite3
+                    conn = sqlite3.connect(str(resolved_db_path))
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                    tables = cursor.fetchall()
+                    self.logger.info(f"Database tables: {[t[0] for t in tables]}")
+                    
+                    cursor.execute("SELECT COUNT(*) FROM conversations;")
+                    count = cursor.fetchone()[0]
+                    self.logger.info(f"Direct SQL query count: {count}")
+                    conn.close()
+                except Exception as e:
+                    self.logger.error(f"Direct SQL test failed: {e}")
+                    
+        except Exception as e:
+            self.logger.error(f"Database initialization failed: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            raise
         
         # Initialize UI components
         self.init_ui()
@@ -351,6 +389,8 @@ class MainWindow(QMainWindow):
         """Set up signal connections for widgets."""
         # Connect search widget
         self.search_widget.search_requested.connect(self.perform_search)
+        self.search_widget.conversation_selected.connect(
+            self.show_conversation)
         
         # Tab widget
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
@@ -394,9 +434,11 @@ class MainWindow(QMainWindow):
                 # Convert None values to empty strings for type safety
                 clean_tokens = {k: v or "" for k, v in tokens.items()}
                 self.config.poe_tokens = clean_tokens
-            
-            self.client = PoeSearchClient(config=self.config, database_url="sqlite:///poe_search.db")
-            
+        
+            # Use consistent database path
+            db_path = Path(__file__).parent.parent.parent / "data" / "poe_search.db"
+            self.client = PoeSearchClient(config=self.config, database_url=f"sqlite:///{db_path}")
+        
             # Get the underlying API client for direct API calls
             self.api_client = self.client.api_client
             

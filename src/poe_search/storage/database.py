@@ -358,6 +358,11 @@ class Database:
         Returns:
             List of matching messages with conversation info
         """
+        # Handle empty or whitespace-only queries
+        if not query or not query.strip():
+            logger.warning("Empty search query provided, returning empty results")
+            return []
+        
         sql_query = """
             SELECT m.*, c.title as conversation_title, c.bot as conversation_bot
             FROM messages_fts fts

@@ -1,12 +1,14 @@
 import json
+import logging
 import os
-import time
 import sqlite3
 import subprocess
+import time
 from datetime import datetime, timedelta
-import logging
 from pathlib import Path
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
 
 try:
     import browser_cookie3
@@ -136,8 +138,32 @@ def get_browser_tokens(headless=True, use_google_auth=True):
     
     def run_playwright():
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=headless)
-            context = browser.new_context()
+            # Launch browser with security and extension best practices
+            browser = p.chromium.launch(
+                headless=headless,
+                args=[
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-extensions-except',
+                    '--disable-extensions',
+                    '--disable-plugins',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-component-extensions-with-background-pages',
+                    '--disable-default-apps',
+                    '--disable-features=TranslateUI',
+                    '--disable-ipc-flooding-protection',
+                    '--disable-renderer-backgrounding',
+                    '--disable-sync',
+                    '--metrics-recording-only',
+                    '--no-first-run',
+                    '--safebrowsing-disable-auto-update',
+                    '--disable-component-update'
+                ]
+            )
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
             page = context.new_page()
             try:
                 logger.info("Navigating to Poe.com login page...")

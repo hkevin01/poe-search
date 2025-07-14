@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+...existing code from /home/kevin/Projects/poe-search/save_formkey.py...#!/usr/bin/env python3
 """
 Save formkey to token configuration.
 """

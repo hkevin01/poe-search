@@ -1,4 +1,4 @@
-# Contributing to Poe Search
+...existing code from /home/kevin/Projects/poe-search/CONTRIBUTING.md...# Contributing to Poe Search
 
 Thank you for your interest in contributing to Poe Search! This document provides guidelines and information for contributors.
 

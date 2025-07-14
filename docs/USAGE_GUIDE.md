@@ -1,4 +1,4 @@
-# How to Use Automatic Token Management
+...existing code from /home/kevin/Projects/poe-search/USAGE_GUIDE.md...# How to Use Automatic Token Management
 
 ## Quick Start
 

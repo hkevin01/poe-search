@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QProgressBar,
     QPushButton,
     QSpinBox,
@@ -60,6 +59,45 @@ class SearchWidget(QWidget):
         """
         self.database = database
         self.logger.info("Database set for search widget")
+        
+        # DEBUG: Try to create a new database connection to ensure we get data
+        try:
+            from pathlib import Path
+
+            # Use absolute path to ensure we get the right database
+            project_root = Path(__file__).parent.parent.parent.parent.parent
+            data_db_path = project_root / "data" / "poe_search.db"
+            root_db_path = project_root / "poe_search.db" 
+            
+            self.logger.info(f"DEBUG: project_root = {project_root}")
+            self.logger.info(f"DEBUG: data_db_path = {data_db_path}, exists = {data_db_path.exists()}")
+            self.logger.info(f"DEBUG: root_db_path = {root_db_path}, exists = {root_db_path.exists()}")
+            
+            # Test both database paths
+            if data_db_path.exists():
+                from poe_search.storage.database import Database
+                test_db = Database(str(data_db_path))
+                test_convs = test_db.get_conversations()
+                self.logger.info(f"DEBUG: data database has {len(test_convs)} conversations")
+                
+                # If the passed database is empty but the data database has conversations, use the data database
+                current_convs = self.database.get_conversations() if self.database else []
+                if len(current_convs) == 0 and len(test_convs) > 0:
+                    self.logger.warning("Passed database is empty, switching to data database")
+                    self.database = test_db
+                    
+            if root_db_path.exists():
+                from poe_search.storage.database import Database
+                test_db2 = Database(str(root_db_path))
+                test_convs2 = test_db2.get_conversations()
+                self.logger.info(f"DEBUG: root database has {len(test_convs2)} conversations")
+                
+        except Exception as e:
+            self.logger.error(f"DEBUG: Database path testing failed: {e}")
+        
+        # Automatically load all conversations when database is set
+        if self.database:
+            self.show_all_conversations()
     
     def set_client(self, client):
         """Set the Poe Search client (legacy method for compatibility).
@@ -156,7 +194,7 @@ class SearchWidget(QWidget):
         # Date range
         filters_row.addWidget(QLabel("From:"))
         self.date_from = QDateEdit()
-        self.date_from.setDate(QDate.currentDate().addDays(-30))
+        self.date_from.setDate(QDate.currentDate().addDays(-365))  # 1 year ago
         self.date_from.setMinimumWidth(120)
         filters_row.addWidget(self.date_from)
         
@@ -295,13 +333,38 @@ class SearchWidget(QWidget):
         self.results_table.itemSelectionChanged.connect(self.on_selection_changed)
         self.results_table.itemDoubleClicked.connect(self.on_item_double_clicked)
     
+    def get_search_params(self) -> Dict[str, Any]:
+        """Get current search parameters from the widget.
+        
+        Returns:
+            Dictionary of search parameters
+        """
+        return {
+            "query": self.search_input.text().strip(),
+            "bot": self.bot_combo.currentText() if self.bot_combo.currentText() != "All Bots" else None,
+            "category": self.category_combo.currentText() if self.category_combo.currentText() != "All Categories" else None,
+            "date_from": self.date_from.date().toPyDate(),
+            "date_to": self.date_to.date().toPyDate(),
+            "use_regex": self.regex_checkbox.isChecked(),
+            "case_sensitive": self.case_sensitive_checkbox.isChecked()
+        }
+
     def perform_search(self):
         """Perform a search with current parameters."""
         if not self.database:
             return
+        
+        # Get search query and validate it
+        query = self.search_input.text().strip()
+        
+        # Handle empty queries - show all conversations instead of warning
+        if not query:
+            logger.info("Empty search query, showing all conversations")
+            self.show_all_conversations()
+            return
             
         search_params = {
-            "query": self.search_input.text(),
+            "query": query,
             "bot": self.bot_combo.currentText() if self.bot_combo.currentText() != "All Bots" else None,
             "category": self.category_combo.currentText() if self.category_combo.currentText() != "All Categories" else None,
             "date_from": self.date_from.date().toPyDate(),
@@ -352,7 +415,7 @@ class SearchWidget(QWidget):
         """Clear all filters."""
         self.bot_combo.setCurrentIndex(0)
         self.category_combo.setCurrentIndex(0)
-        self.date_from.setDate(QDate.currentDate().addDays(-30))
+        self.date_from.setDate(QDate.currentDate().addDays(-365))  # 1 year ago
         self.date_to.setDate(QDate.currentDate())
         self.regex_checkbox.setChecked(False)
         self.case_sensitive_checkbox.setChecked(False)
@@ -491,3 +554,68 @@ class SearchWidget(QWidget):
         except Exception as e:
             logger.error(f"Error in SearchWidget.refresh_data(): {e}")
             raise
+
+    def show_all_conversations(self):
+        """Show all conversations respecting current filters."""
+        if not self.database:
+            logger.error("Database not set in SearchWidget")
+            return
+        
+        try:
+            # Get all conversations from database
+            all_conversations = self.database.get_conversations()
+            logger.info(f"Raw conversations from database: {len(all_conversations)}")
+            
+            # Apply all current filters including date range
+            filtered_conversations = []
+            selected_bot = self.bot_combo.currentText()
+            selected_category = self.category_combo.currentText()
+            
+            # Use the actual selected date range from the UI
+            user_date_from = self.date_from.date().toPyDate()
+            user_date_to = self.date_to.date().toPyDate()
+            
+            logger.info(f"Filters: bot={selected_bot}, "
+                        f"category={selected_category}, "
+                        f"date_range={user_date_from} to {user_date_to}")
+            
+            for conversation in all_conversations:
+                # Apply bot filter
+                if (selected_bot != "All Bots" and
+                        conversation.get("bot") != selected_bot):
+                    continue
+                
+                # Apply category filter
+                if (selected_category != "All Categories" and
+                        conversation.get("category") != selected_category):
+                    continue
+                
+                # Apply user's selected date filter
+                conv_date = conversation.get("created_at")
+                if conv_date:
+                    try:
+                        from datetime import datetime
+                        conv_datetime = datetime.fromisoformat(
+                            conv_date.replace('Z', '+00:00'))
+                        conv_date_only = conv_datetime.date()
+                        if not (user_date_from <= conv_date_only <=
+                                user_date_to):
+                            continue
+                    except (ValueError, AttributeError):
+                        # Skip conversations with invalid dates
+                        continue
+                
+                filtered_conversations.append(conversation)
+            
+            # Use existing methods to display results
+            self.populate_table(filtered_conversations)
+            self.update_bot_filter()
+            
+            # Update results count
+            count = len(filtered_conversations)
+            text = f"{count} conversation{'s' if count != 1 else ''} found"
+            self.results_label.setText(text)
+            logger.info(f"Showing {count} conversations after filters")
+            
+        except Exception as e:
+            logger.error(f"Error showing all conversations: {e}")

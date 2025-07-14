@@ -1,0 +1,38 @@
+# Poe Search Project - Cursor AI Rules
+
+## 🚫 ABSOLUTE PROHIBITIONS
+
+### NEVER create fake/dummy/sample/mock data
+- No placeholder conversations, users, or content
+- No "sample data for testing" - use real Poe.com conversation data only
+- No mock API responses - work with actual Poe.com API
+- No fabricated conversation titles or messages
+
+## ✅ REQUIRED PRACTICES
+
+### Real Data Only
+- Use actual conversations from `data/poe_search.db` (4 real conversations exist)
+- Work with real Poe.com conversation titles: "Python Web Development Discussion", "JavaScript React Tutorial", etc.
+- Debug against actual database content, not assumptions
+- Verify file paths and database connections with real data
+
+### Current Issue Focus
+- GUI SearchWidget displays 0 conversations despite database having 4 real ones
+- MainWindow database logs missing - investigate Database object connection
+- Fix real path/connection issues, don't work around with fake data
+
+### Authentication
+- Use real Poe.com tokens and browser session extraction
+- Handle actual Poe-Formkey validation
+- Work with real GraphQL API endpoints
+
+### Error Handling
+- Log actual file paths, database states, and connection results
+- Use specific error messages for real debugging scenarios
+- Verify what actually exists vs. what's expected
+
+## 🎯 Project Context
+
+This is a PyQt6 GUI application for searching real Poe.com conversations. The SearchWidget should display actual conversation data from the SQLite database, but currently shows empty results despite the database containing 4 real conversations from 2025-07-03.
+
+**Focus**: Debug the database connection issue causing SearchWidget to receive 0 conversations instead of creating any workarounds or test data.

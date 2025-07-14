@@ -56,13 +56,14 @@ def main(ctx: click.Context, config: Optional[str], token: Optional[str],
     
     # Override with command line options
     if token:
-        cfg["token"] = token
+        cfg.poe_token = token
     
     # Initialize client
     ctx.obj["client"] = PoeSearchClient(
-        token=cfg.get("token"),
-        database_url=cfg.get("database_url"),
+        token=cfg.poe_token if cfg.poe_token else None,
+        database_url=cfg.database_url,
         config_path=config_path,
+        config=cfg,
     )
     ctx.obj["config"] = cfg
 
@@ -79,7 +80,7 @@ def config():
 def set_token(ctx: click.Context, token: str):
     """Set your Poe authentication token."""
     cfg = ctx.obj["config"]
-    cfg["token"] = token
+    cfg.poe_token = token
     save_config(cfg, ctx.obj["client"].config_path)
     console.print("✅ Token saved successfully!", style="green")
 

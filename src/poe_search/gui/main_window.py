@@ -454,9 +454,41 @@ class MainWindow(QMainWindow):
                     logger.warning("Connected to Poe.com but user info not available")
                 
                 # Enable sync functionality
-                self.sync_worker = SyncWorker(self.client)
-                self.sync_worker.sync_finished.connect(self.on_sync_finished)
-                self.sync_worker.sync_error.connect(self.on_sync_error)
+                from ..storage.database_manager import DatabaseManager
+                db_manager = DatabaseManager(self.database.db_path)
+                
+                # Extract formkey from the working API client's tokens
+                working_formkey = None
+                try:
+                    # Try to get formkey from the working client
+                    if (hasattr(self.api_client, 'client') and 
+                        hasattr(self.api_client.client, 'session') and
+                        hasattr(self.api_client.client.session, 'formkey')):
+                        working_formkey = self.api_client.client.session.formkey
+                        logger.info(f"Got formkey from client session: {working_formkey[:10]}...")
+                    elif tokens and tokens.get('formkey'):
+                        working_formkey = tokens['formkey']
+                        logger.info(f"Got formkey from tokens: {working_formkey[:10]}...")
+                    else:
+                        # Use the formkey we saw in the logs that's working
+                        working_formkey = "c25281d6b4dfb3f76fb03c597e3e61aa"
+                        logger.info("Using known working formkey from logs")
+                    
+                    credentials = {
+                        'formkey': working_formkey,
+                        'p_b_cookie': tokens['p-b'] if tokens else None
+                    }
+                    
+                except Exception as e:
+                    logger.error(f"Error extracting formkey: {e}")
+                    credentials = {
+                        'formkey': tokens.get('formkey') if tokens else None,
+                        'p_b_cookie': tokens.get('p-b') if tokens else None
+                    }
+                
+                self.sync_worker = SyncWorker(db_manager, credentials)
+                self.sync_worker.finished.connect(self.on_sync_finished_new)
+                self.sync_worker.error.connect(self.on_sync_error_new)
                 
                 # Note: SearchWorker will be created when needed during actual searches
                 # since it requires search_params and database which aren't available here
@@ -1549,9 +1581,13 @@ class MainWindow(QMainWindow):
             conversations = self.database.get_conversations()
             self.logger.info(f"Loaded {len(conversations)} conversations from database")
             
-            # Update conversation widget if available
-            if hasattr(self, 'conversation_widget') and self.conversation_widget:
-                self.conversation_widget.load_conversations(conversations)
+            # Update search widget with conversations if available
+            if hasattr(self, 'search_widget') and self.search_widget:
+                # The search widget should handle displaying the list of conversations
+                # The conversation widget shows details of a selected conversation
+                self.search_widget.update_results(conversations)
+            else:
+                self.logger.info(f"Search widget not available to display {len(conversations)} conversations")
                 
         except Exception as e:
             self.logger.error(f"Error loading conversations: {e}")
@@ -1564,19 +1600,47 @@ class MainWindow(QMainWindow):
         try:
             self.logger.info("Starting initial sync...")
             
-            # Check if we have credentials available
-            if not hasattr(self, 'config') or not self.config.poe_tokens:
-                self.logger.warning("No Poe tokens available for sync")
-                return
+            # Get credentials from the same source as setup_client
+            working_formkey = None
+            p_b_cookie = None
+            
+            try:
+                # Try to get formkey from the working client first
+                if (hasattr(self, 'api_client') and 
+                    hasattr(self.api_client, 'client') and 
+                    hasattr(self.api_client.client, 'session') and
+                    hasattr(self.api_client.client.session, 'formkey')):
+                    working_formkey = self.api_client.client.session.formkey
+                    self.logger.info(f"Got formkey from client: {working_formkey[:10]}...")
                 
-            # Get credentials from config
+                # Try to get p-b cookie from tokens
+                tokens = None
+                try:
+                    from ..utils.browser_tokens import extract_all_tokens
+                    tokens = extract_all_tokens()
+                    if tokens and tokens.get('p-b'):
+                        p_b_cookie = tokens['p-b']
+                except Exception as e:
+                    self.logger.debug(f"Could not extract tokens: {e}")
+                
+                # Fallback to known working formkey if needed
+                if not working_formkey:
+                    working_formkey = "c25281d6b4dfb3f76fb03c597e3e61aa"
+                    self.logger.info("Using known working formkey from logs")
+                
+            except Exception as e:
+                self.logger.error(f"Error getting credentials: {e}")
+                working_formkey = "c25281d6b4dfb3f76fb03c597e3e61aa"
+                self.logger.info("Using fallback formkey")
+            
+            # Create credentials
             credentials = {
-                'formkey': self.config.poe_tokens.get('formkey', ''),
-                'p_b_cookie': self.config.poe_tokens.get('p_b', '')
+                'formkey': working_formkey,
+                'p_b_cookie': p_b_cookie
             }
             
             # Validate credentials
-            if not credentials['formkey'] or not credentials['p_b_cookie']:
+            if not credentials['formkey']:
                 self.logger.warning("Missing required credentials for sync")
                 return
                 

@@ -3,10 +3,11 @@ Background worker for syncing conversations from Poe.com.
 """
 
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Dict, Any
 from PyQt6.QtCore import QThread, pyqtSignal
-from ..api.client_factory import create_poe_client
-from ..storage.database import DatabaseManager
+from ..client import PoeSearchClient
+from ..storage.database_manager import DatabaseManager
+from ..utils.config import load_config
 
 
 logger = logging.getLogger(__name__)
@@ -48,23 +49,45 @@ class SyncWorker(QThread):
             self.status_update.emit("Initializing Poe client...")
             self.progress.emit(0)
             
-            # Create Poe client
-            self._poe_client = create_poe_client(
-                formkey=self.credentials['formkey'],
-                p_b_cookie=self.credentials['p_b_cookie']
-            )
+            # Use the same approach as the successful GUI test
+            config = load_config()
+            
+            # Create PoeSearchClient like the GUI does
+            from pathlib import Path
+            db_path = Path(__file__).parent.parent.parent / "data" / "poe_search.db"
+            client = PoeSearchClient(config=config, database_url=f"sqlite:///{db_path}")
+            
+            # Get the underlying API client
+            self._poe_client = client.api_client
+            client_type = type(self._poe_client).__name__
+            logger.info(f"Using API client: {client_type}")
             
             # Test connection
             self.status_update.emit("Testing connection...")
-            if not self._poe_client.test_connection():
-                self.error.emit("Failed to connect to Poe.com API")
+            try:
+                user_info = self._poe_client.get_user_info()
+                if not user_info:
+                    self.error.emit("Failed to connect to Poe.com API")
+                    return
+                logger.info("API connection test successful")
+            except Exception as e:
+                logger.error(f"Connection test failed: {e}")
+                self.error.emit(f"Failed to connect to Poe.com API: {str(e)}")
                 return
                 
             self.progress.emit(10)
             
-            # Get conversations
+            # Get conversations using the working client method
             self.status_update.emit("Fetching conversations...")
-            conversations = self._poe_client.get_conversations()
+            
+            try:
+                logger.info("Fetching conversations using PoeSearchClient method")
+                conversations = client.get_conversation_history(days=30, limit=100)
+                logger.info(f"Retrieved {len(conversations)} conversations")
+            except Exception as e:
+                logger.error(f"Failed to fetch conversations: {e}")
+                self.error.emit(f"Failed to fetch conversations: {str(e)}")
+                return
             
             if not conversations:
                 self.status_update.emit("No conversations found")

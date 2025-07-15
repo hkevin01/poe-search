@@ -15,10 +15,13 @@ class DirectPoeClient:
         self.token = token
         self.session = httpx.Client(
             headers={
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
                 "Cookie": f"p-b={token}",
                 "Poe-Formkey": formkey,
                 "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Origin": "https://poe.com",
+                "Referer": "https://poe.com/",
             },
             timeout=30.0
         )
@@ -26,8 +29,31 @@ class DirectPoeClient:
     def test_connection(self) -> bool:
         """Test if we can connect to Poe.com"""
         try:
-            response = self.session.get("https://poe.com")
-            return response.status_code == 200
+            # Try the main page first (should accept redirects)
+            response = self.session.get("https://poe.com/", follow_redirects=True)
+            if response.status_code == 200:
+                logger.info("Successfully connected to Poe.com")
+                return True
+                
+            # If main page fails, try GraphQL endpoint with a simple query
+            logger.info("Main page failed, trying GraphQL endpoint...")
+            query = {
+                "query": "query { viewer { id } }",
+                "variables": {}
+            }
+            
+            response = self.session.post(
+                "https://poe.com/api/gql_POST",
+                json=query
+            )
+            
+            if response.status_code == 200:
+                logger.info("GraphQL endpoint accessible")
+                return True
+            else:
+                logger.warning(f"GraphQL endpoint returned status: {response.status_code}")
+                return False
+                
         except Exception as e:
             logger.error(f"Connection test failed: {e}")
             return False

@@ -351,7 +351,27 @@ class PoeAPIClient:
         
         try:
             all_conversations = []
-            bot_ids = []
+            
+            # Get available bots first
+            try:
+                available_bots = self.client.get_available_bots()
+                if isinstance(available_bots, dict):
+                    bot_ids = list(available_bots.keys())
+                elif isinstance(available_bots, list):
+                    bot_ids = available_bots
+                else:
+                    logger.warning(f"Unexpected bot data format: {type(available_bots)}")
+                    bot_ids = []
+                    
+                logger.info(f"Found {len(bot_ids)} available bots")
+                if len(bot_ids) == 0:
+                    logger.warning("No bots available - this may be why no conversations are found")
+                    return []
+                    
+            except Exception as e:
+                logger.error(f"Failed to get available bots: {e}")
+                return []
+            
             for bot_id in bot_ids:
                 try:
                     if bot_id != bot_ids[0]:

@@ -104,7 +104,7 @@ pre-commit install           # Set up git hooks
 ```
 
 ### ⚙️ **Using Make (Advanced)**
-```bash
+   ```bash
 make setup                   # Complete development environment
 make install                 # Standard installation
 make gui                     # Launch GUI directly

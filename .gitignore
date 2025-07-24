@@ -161,6 +161,7 @@ temp/
 
 # Secrets and Configuration
 config/
+!config/*.example.json
 *.pem
 *.key
 config.json

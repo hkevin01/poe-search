@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 Enhanced GUI Launcher for Poe Search
-Combines test interface with full application functionality
-Now loads tokens from secure config file
+Fixed styling and layout issues
 """
 
 import sys
@@ -151,12 +150,13 @@ class FullFeaturedMainWindow:
         """Create the complete main window"""
         self.window = self.QMainWindow()
         self.window.setWindowTitle("🔍 Poe Search - Advanced AI Conversation Manager")
-        self.window.setGeometry(100, 100, 1600, 1000)
+        self.window.setGeometry(50, 50, 1400, 900)
+        self.window.setMinimumSize(1200, 800)
         
         # Load tokens from config file
         self.loaded_tokens = load_poe_tokens()
         
-        # Apply comprehensive styling
+        # Apply comprehensive styling FIRST
         self.apply_advanced_styling()
         
         # Create menu bar
@@ -166,8 +166,8 @@ class FullFeaturedMainWindow:
         main_widget = self.QWidget()
         self.window.setCentralWidget(main_widget)
         main_layout = self.QVBoxLayout(main_widget)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(15)
         
         # Header section
         header = self.create_header()
@@ -175,6 +175,7 @@ class FullFeaturedMainWindow:
         
         # Create tabbed interface
         self.tab_widget = self.QTabWidget()
+        self.tab_widget.setTabPosition(self.QTabWidget.TabPosition.North)
         main_layout.addWidget(self.tab_widget)
         
         # Tab 1: Main conversation browser
@@ -204,6 +205,7 @@ class FullFeaturedMainWindow:
     def create_header(self):
         """Create the application header"""
         header_frame = self.QFrame()
+        header_frame.setFixedHeight(100)
         header_frame.setStyleSheet("""
             QFrame {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
@@ -214,44 +216,59 @@ class FullFeaturedMainWindow:
         """)
         
         header_layout = self.QHBoxLayout(header_frame)
-        header_layout.setContentsMargins(20, 15, 20, 15)
+        header_layout.setContentsMargins(25, 20, 25, 20)
+        header_layout.setSpacing(20)
         
-        # Logo and title
+        # Logo and title section
+        title_section = self.QWidget()
+        title_layout = self.QVBoxLayout(title_section)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(5)
+        
         title_label = self.QLabel("🔍 Poe Search")
         title_label.setStyleSheet("""
             QLabel {
                 color: white;
-                font-size: 28px;
+                font-size: 32px;
                 font-weight: bold;
                 background: transparent;
+                margin: 0;
+                padding: 0;
             }
         """)
-        header_layout.addWidget(title_label)
+        title_layout.addWidget(title_label)
         
         subtitle_label = self.QLabel("Advanced AI Conversation Manager")
         subtitle_label.setStyleSheet("""
             QLabel {
-                color: rgba(255, 255, 255, 0.8);
+                color: rgba(255, 255, 255, 0.9);
                 font-size: 16px;
                 background: transparent;
+                margin: 0;
+                padding: 0;
             }
         """)
-        header_layout.addWidget(subtitle_label)
+        title_layout.addWidget(subtitle_label)
         
+        header_layout.addWidget(title_section)
         header_layout.addStretch()
         
-        # Quick stats
-        stats_widget = self.QWidget()
-        stats_layout = self.QVBoxLayout(stats_widget)
+        # Stats section
+        stats_section = self.QWidget()
+        stats_layout = self.QVBoxLayout(stats_section)
         stats_layout.setContentsMargins(0, 0, 0, 0)
+        stats_layout.setSpacing(5)
+        stats_layout.setAlignment(self.Qt.AlignmentFlag.AlignRight)
         
         self.stats_label = self.QLabel("📊 0 conversations loaded")
         self.stats_label.setStyleSheet("""
             QLabel {
                 color: white;
-                font-size: 14px;
+                font-size: 16px;
                 font-weight: bold;
                 background: transparent;
+                margin: 0;
+                padding: 0;
             }
         """)
         stats_layout.addWidget(self.stats_label)
@@ -262,13 +279,15 @@ class FullFeaturedMainWindow:
         self.status_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.8);
-                font-size: 12px;
+                font-size: 14px;
                 background: transparent;
+                margin: 0;
+                padding: 0;
             }
         """)
         stats_layout.addWidget(self.status_label)
         
-        header_layout.addWidget(stats_widget)
+        header_layout.addWidget(stats_section)
         
         return header_frame
     
@@ -278,7 +297,8 @@ class FullFeaturedMainWindow:
         self.tab_widget.addTab(conv_widget, "💬 Conversations")
         
         layout = self.QVBoxLayout(conv_widget)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
         
         # Connection toolbar
         toolbar = self.create_connection_toolbar()
@@ -287,66 +307,60 @@ class FullFeaturedMainWindow:
         # Progress bar
         self.progress_bar = self.QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 2px solid #404040;
-                border-radius: 8px;
-                text-align: center;
-                font-weight: bold;
-                background-color: #2a2a2a;
-            }
-            QProgressBar::chunk {
-                background-color: #0078d4;
-                border-radius: 6px;
-            }
-        """)
+        self.progress_bar.setFixedHeight(25)
         layout.addWidget(self.progress_bar)
         
         # Main content area
         content_splitter = self.QSplitter(self.Qt.Orientation.Horizontal)
+        content_splitter.setHandleWidth(8)
         
         # Left panel: conversation list
         left_panel = self.create_conversation_list_panel()
+        left_panel.setMinimumWidth(400)
         content_splitter.addWidget(left_panel)
         
         # Right panel: message viewer
         right_panel = self.create_message_viewer_panel()
+        right_panel.setMinimumWidth(600)
         content_splitter.addWidget(right_panel)
         
         # Set splitter proportions
         content_splitter.setStretchFactor(0, 1)
         content_splitter.setStretchFactor(1, 2)
-        content_splitter.setSizes([400, 800])
+        content_splitter.setSizes([450, 750])
         
         layout.addWidget(content_splitter)
     
     def create_connection_toolbar(self):
         """Create connection and sync toolbar"""
         toolbar_group = self.QGroupBox("🔗 Connection & Sync")
+        toolbar_group.setMaximumHeight(200)
         toolbar_layout = self.QFormLayout(toolbar_group)
-        
-        # Token selection and input
-        token_layout = self.QHBoxLayout()
+        toolbar_layout.setSpacing(10)
+        toolbar_layout.setContentsMargins(20, 25, 20, 20)
         
         # Token source selection
+        token_source_layout = self.QHBoxLayout()
         self.token_source_combo = self.QComboBox()
         self.token_source_combo.addItem("📁 Use Config File")
         self.token_source_combo.addItem("✏️ Manual Entry")
+        self.token_source_combo.setFixedHeight(35)
         self.token_source_combo.currentTextChanged.connect(self.on_token_source_changed)
-        token_layout.addWidget(self.token_source_combo)
+        token_source_layout.addWidget(self.token_source_combo)
+        token_source_layout.addStretch()
         
-        token_layout.addStretch()
-        toolbar_layout.addRow("🔑 Token Source:", token_layout)
+        toolbar_layout.addRow("🔑 Token Source:", token_source_layout)
         
         # Token input (initially hidden if config file has token)
         token_input_layout = self.QHBoxLayout()
         self.token_input = self.QLineEdit()
         self.token_input.setEchoMode(self.QLineEdit.EchoMode.Password)
         self.token_input.setPlaceholderText("Enter your Poe p-b cookie token...")
+        self.token_input.setFixedHeight(35)
         token_input_layout.addWidget(self.token_input)
         
         show_token_btn = self.QPushButton("👁️")
-        show_token_btn.setFixedSize(35, 35)
+        show_token_btn.setFixedSize(40, 35)
         show_token_btn.clicked.connect(self.toggle_token_visibility)
         token_input_layout.addWidget(show_token_btn)
         
@@ -361,16 +375,20 @@ class FullFeaturedMainWindow:
         
         # Control buttons
         controls_layout = self.QHBoxLayout()
+        controls_layout.setSpacing(10)
         
         self.sync_button = self.QPushButton("🔄 Sync Conversations")
+        self.sync_button.setFixedHeight(40)
         self.sync_button.clicked.connect(self.sync_conversations)
         controls_layout.addWidget(self.sync_button)
         
         self.test_connection_btn = self.QPushButton("🧪 Test Connection")
+        self.test_connection_btn.setFixedHeight(40)
         self.test_connection_btn.clicked.connect(self.test_connection)
         controls_layout.addWidget(self.test_connection_btn)
         
         self.save_token_btn = self.QPushButton("💾 Save Token")
+        self.save_token_btn.setFixedHeight(40)
         self.save_token_btn.clicked.connect(self.save_current_token)
         controls_layout.addWidget(self.save_token_btn)
         
@@ -393,10 +411,10 @@ class FullFeaturedMainWindow:
             masked_token = self.loaded_tokens['p-b'][:8] + "..." + self.loaded_tokens['p-b'][-8:]
             status_text = f"✅ Config: {masked_token}"
             self.token_status_label.setText(status_text)
-            self.token_status_label.setStyleSheet("color: #00b294; font-weight: bold;")
+            self.token_status_label.setStyleSheet("color: #00b294; font-weight: bold; font-size: 13px;")
         else:
             self.token_status_label.setText("❌ No token found in config")
-            self.token_status_label.setStyleSheet("color: #d13438; font-weight: bold;")
+            self.token_status_label.setStyleSheet("color: #d13438; font-weight: bold; font-size: 13px;")
     
     def on_token_source_changed(self):
         """Handle token source selection change"""
@@ -445,26 +463,34 @@ class FullFeaturedMainWindow:
         """Create the conversation list with search and filters"""
         panel_widget = self.QWidget()
         panel_layout = self.QVBoxLayout(panel_widget)
+        panel_layout.setContentsMargins(10, 10, 10, 10)
+        panel_layout.setSpacing(15)
         
         # Search and filter section
         search_group = self.QGroupBox("🔍 Search & Filter")
+        search_group.setMaximumHeight(200)
         search_layout = self.QFormLayout(search_group)
+        search_layout.setSpacing(10)
+        search_layout.setContentsMargins(15, 25, 15, 15)
         
         # Search input
         self.search_input = self.QLineEdit()
         self.search_input.setPlaceholderText("Search conversations...")
+        self.search_input.setFixedHeight(35)
         self.search_input.textChanged.connect(self.filter_conversations)
         search_layout.addRow("🔎 Search:", self.search_input)
         
         # Bot filter
         self.bot_filter = self.QComboBox()
         self.bot_filter.addItem("All Bots")
+        self.bot_filter.setFixedHeight(35)
         self.bot_filter.currentTextChanged.connect(self.filter_conversations)
         search_layout.addRow("🤖 Bot:", self.bot_filter)
         
         # Date filter
         self.date_filter = self.QComboBox()
         self.date_filter.addItems(["All Time", "Today", "This Week", "This Month", "Last 3 Months"])
+        self.date_filter.setFixedHeight(35)
         self.date_filter.currentTextChanged.connect(self.filter_conversations)
         search_layout.addRow("📅 Date:", self.date_filter)
         
@@ -473,6 +499,8 @@ class FullFeaturedMainWindow:
         # Conversation list
         list_group = self.QGroupBox("💬 Conversations")
         list_layout = self.QVBoxLayout(list_group)
+        list_layout.setContentsMargins(15, 25, 15, 15)
+        list_layout.setSpacing(10)
         
         self.conversation_list = self.QListWidget()
         self.conversation_list.setAlternatingRowColors(True)
@@ -481,7 +509,7 @@ class FullFeaturedMainWindow:
         
         # List stats
         self.list_stats = self.QLabel("📊 0 conversations")
-        self.list_stats.setStyleSheet("color: #888; font-size: 12px; padding: 5px;")
+        self.list_stats.setStyleSheet("color: #888; font-size: 13px; padding: 5px;")
         list_layout.addWidget(self.list_stats)
         
         panel_layout.addWidget(list_group)
@@ -492,17 +520,20 @@ class FullFeaturedMainWindow:
         """Create the message viewing panel"""
         panel_widget = self.QWidget()
         panel_layout = self.QVBoxLayout(panel_widget)
+        panel_layout.setContentsMargins(10, 10, 10, 10)
+        panel_layout.setSpacing(15)
         
         # Conversation header
         self.conv_header = self.QLabel("Select a conversation to view messages")
+        self.conv_header.setFixedHeight(60)
         self.conv_header.setStyleSheet("""
             QLabel {
-                font-size: 18px;
+                font-size: 20px;
                 font-weight: bold;
                 color: #0078d4;
-                padding: 15px;
+                padding: 15px 20px;
                 background-color: #2a2a2a;
-                border-radius: 8px;
+                border-radius: 10px;
                 border: 1px solid #404040;
             }
         """)
@@ -515,13 +546,16 @@ class FullFeaturedMainWindow:
         
         # Action buttons
         actions_layout = self.QHBoxLayout()
+        actions_layout.setSpacing(10)
         
         self.export_conv_btn = self.QPushButton("📄 Export Conversation")
+        self.export_conv_btn.setFixedHeight(40)
         self.export_conv_btn.clicked.connect(self.export_current_conversation)
         self.export_conv_btn.setEnabled(False)
         actions_layout.addWidget(self.export_conv_btn)
         
         self.copy_conv_btn = self.QPushButton("📋 Copy to Clipboard")
+        self.copy_conv_btn.setFixedHeight(40)
         self.copy_conv_btn.clicked.connect(self.copy_conversation)
         self.copy_conv_btn.setEnabled(False)
         actions_layout.addWidget(self.copy_conv_btn)
@@ -538,18 +572,24 @@ class FullFeaturedMainWindow:
         self.tab_widget.addTab(search_widget, "🔍 Advanced Search")
         
         layout = self.QVBoxLayout(search_widget)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
         
         # Advanced search form
         search_form_group = self.QGroupBox("🔍 Advanced Search Options")
         search_form_layout = self.QFormLayout(search_form_group)
+        search_form_layout.setSpacing(10)
+        search_form_layout.setContentsMargins(20, 25, 20, 20)
         
         # Search query
         self.advanced_search_input = self.QLineEdit()
         self.advanced_search_input.setPlaceholderText("Enter search query...")
+        self.advanced_search_input.setFixedHeight(35)
         search_form_layout.addRow("🔎 Query:", self.advanced_search_input)
         
         # Search options
         search_options_layout = self.QHBoxLayout()
+        search_options_layout.setSpacing(15)
         
         self.regex_checkbox = self.QCheckBox("Use Regex")
         search_options_layout.addWidget(self.regex_checkbox)
@@ -560,10 +600,13 @@ class FullFeaturedMainWindow:
         self.whole_word_checkbox = self.QCheckBox("Whole Words Only")
         search_options_layout.addWidget(self.whole_word_checkbox)
         
+        search_options_layout.addStretch()
+        
         search_form_layout.addRow("⚙️ Options:", search_options_layout)
         
         # Search button
         search_btn = self.QPushButton("🔍 Search")
+        search_btn.setFixedHeight(40)
         search_btn.clicked.connect(self.perform_advanced_search)
         search_form_layout.addRow("", search_btn)
         
@@ -572,6 +615,7 @@ class FullFeaturedMainWindow:
         # Results area
         results_group = self.QGroupBox("📋 Search Results")
         results_layout = self.QVBoxLayout(results_group)
+        results_layout.setContentsMargins(20, 25, 20, 20)
         
         self.search_results_list = self.QListWidget()
         self.search_results_list.itemClicked.connect(self.on_search_result_selected)
@@ -585,21 +629,29 @@ class FullFeaturedMainWindow:
         self.tab_widget.addTab(analytics_widget, "📊 Analytics")
         
         layout = self.QVBoxLayout(analytics_widget)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
         
         # Analytics overview
         overview_group = self.QGroupBox("📈 Analytics Overview")
         overview_layout = self.QFormLayout(overview_group)
+        overview_layout.setSpacing(10)
+        overview_layout.setContentsMargins(20, 25, 20, 20)
         
         self.total_conversations_label = self.QLabel("0")
+        self.total_conversations_label.setStyleSheet("font-weight: bold; font-size: 16px; color: #0078d4;")
         overview_layout.addRow("💬 Total Conversations:", self.total_conversations_label)
         
         self.total_messages_label = self.QLabel("0")
+        self.total_messages_label.setStyleSheet("font-weight: bold; font-size: 16px; color: #0078d4;")
         overview_layout.addRow("📝 Total Messages:", self.total_messages_label)
         
         self.unique_bots_label = self.QLabel("0")
+        self.unique_bots_label.setStyleSheet("font-weight: bold; font-size: 16px; color: #0078d4;")
         overview_layout.addRow("🤖 Unique Bots:", self.unique_bots_label)
         
         self.avg_messages_per_conv_label = self.QLabel("0")
+        self.avg_messages_per_conv_label.setStyleSheet("font-weight: bold; font-size: 16px; color: #0078d4;")
         overview_layout.addRow("📊 Avg Messages/Conv:", self.avg_messages_per_conv_label)
         
         layout.addWidget(overview_group)
@@ -607,11 +659,14 @@ class FullFeaturedMainWindow:
         # Bot usage stats
         bot_stats_group = self.QGroupBox("🤖 Bot Usage Statistics")
         bot_stats_layout = self.QVBoxLayout(bot_stats_group)
+        bot_stats_layout.setContentsMargins(20, 25, 20, 20)
+        bot_stats_layout.setSpacing(10)
         
         self.bot_stats_list = self.QListWidget()
         bot_stats_layout.addWidget(self.bot_stats_list)
         
         refresh_analytics_btn = self.QPushButton("🔄 Refresh Analytics")
+        refresh_analytics_btn.setFixedHeight(40)
         refresh_analytics_btn.clicked.connect(self.update_analytics)
         bot_stats_layout.addWidget(refresh_analytics_btn)
         
@@ -625,13 +680,18 @@ class FullFeaturedMainWindow:
         self.tab_widget.addTab(settings_widget, "⚙️ Settings")
         
         layout = self.QVBoxLayout(settings_widget)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
         
         # Token configuration
         token_group = self.QGroupBox("🔑 Token Configuration")
         token_layout = self.QVBoxLayout(token_group)
+        token_layout.setContentsMargins(20, 25, 20, 20)
+        token_layout.setSpacing(15)
         
         # Current token status
         current_token_layout = self.QFormLayout()
+        current_token_layout.setSpacing(10)
         
         self.config_token_display = self.QLabel()
         self.update_config_token_display()
@@ -641,12 +701,15 @@ class FullFeaturedMainWindow:
         
         # Token management buttons
         token_buttons_layout = self.QHBoxLayout()
+        token_buttons_layout.setSpacing(10)
         
         reload_token_btn = self.QPushButton("🔄 Reload from Config")
+        reload_token_btn.setFixedHeight(40)
         reload_token_btn.clicked.connect(self.reload_tokens_from_config)
         token_buttons_layout.addWidget(reload_token_btn)
         
         clear_token_btn = self.QPushButton("🗑️ Clear Config Token")
+        clear_token_btn.setFixedHeight(40)
         clear_token_btn.clicked.connect(self.clear_config_token)
         token_buttons_layout.addWidget(clear_token_btn)
         
@@ -664,7 +727,17 @@ class FullFeaturedMainWindow:
         
         ⚠️ Your token is automatically saved to config/poe_tokens.json (not in git)
         """)
-        instructions.setStyleSheet("font-size: 13px; padding: 15px; color: #ccc;")
+        instructions.setStyleSheet("""
+            QLabel {
+                font-size: 14px; 
+                padding: 20px; 
+                color: #ccc; 
+                background-color: #2a2a2a; 
+                border-radius: 8px; 
+                border: 1px solid #404040;
+                line-height: 1.5;
+            }
+        """)
         token_layout.addWidget(instructions)
         
         layout.addWidget(token_group)
@@ -672,17 +745,21 @@ class FullFeaturedMainWindow:
         # App settings
         app_group = self.QGroupBox("🎛️ Application Settings")
         app_layout = self.QFormLayout(app_group)
+        app_layout.setSpacing(10)
+        app_layout.setContentsMargins(20, 25, 20, 20)
         
         self.auto_sync_checkbox = self.QCheckBox("Auto-sync on startup")
         app_layout.addRow("🔄 Sync:", self.auto_sync_checkbox)
         
         self.theme_combo = self.QComboBox()
         self.theme_combo.addItems(["Dark Theme", "Light Theme", "Auto"])
+        self.theme_combo.setFixedHeight(35)
         app_layout.addRow("🎨 Theme:", self.theme_combo)
         
         self.max_conversations_spin = self.QSpinBox()
         self.max_conversations_spin.setRange(10, 1000)
         self.max_conversations_spin.setValue(100)
+        self.max_conversations_spin.setFixedHeight(35)
         app_layout.addRow("📊 Max Conversations:", self.max_conversations_spin)
         
         layout.addWidget(app_group)
@@ -693,10 +770,10 @@ class FullFeaturedMainWindow:
         if self.loaded_tokens.get('p-b'):
             masked_token = self.loaded_tokens['p-b'][:12] + "..." + self.loaded_tokens['p-b'][-12:]
             self.config_token_display.setText(f"✅ {masked_token}")
-            self.config_token_display.setStyleSheet("color: #00b294; font-weight: bold;")
+            self.config_token_display.setStyleSheet("color: #00b294; font-weight: bold; font-size: 14px;")
         else:
             self.config_token_display.setText("❌ No token in config file")
-            self.config_token_display.setStyleSheet("color: #d13438;")
+            self.config_token_display.setStyleSheet("color: #d13438; font-size: 14px;")
     
     def reload_tokens_from_config(self):
         """Reload tokens from config file"""
@@ -772,36 +849,41 @@ class FullFeaturedMainWindow:
         about_action.triggered.connect(self.show_about)
     
     def apply_advanced_styling(self):
-        """Apply comprehensive dark theme styling"""
+        """Apply comprehensive dark theme styling with better layout"""
         self.window.setStyleSheet("""
             /* Main Window */
             QMainWindow {
                 background-color: #1e1e1e;
                 color: #ffffff;
+                font-family: 'Segoe UI', 'Arial', sans-serif;
             }
             
             /* General Widgets */
             QWidget {
                 background-color: #1e1e1e;
                 color: #ffffff;
-                font-family: 'Segoe UI', Arial, sans-serif;
+                font-family: 'Segoe UI', 'Arial', sans-serif;
+                font-size: 13px;
             }
             
             /* Tabs */
             QTabWidget::pane {
-                border: 1px solid #404040;
+                border: 2px solid #404040;
                 background-color: #2b2b2b;
-                border-radius: 8px;
+                border-radius: 10px;
+                padding: 5px;
             }
             
             QTabBar::tab {
                 background-color: #3c3c3c;
                 color: #ffffff;
-                padding: 12px 20px;
-                margin-right: 2px;
-                border-top-left-radius: 8px;
-                border-top-right-radius: 8px;
+                padding: 15px 25px;
+                margin-right: 3px;
+                border-top-left-radius: 10px;
+                border-top-right-radius: 10px;
                 font-weight: bold;
+                font-size: 14px;
+                min-width: 120px;
             }
             
             QTabBar::tab:selected {
@@ -817,19 +899,20 @@ class FullFeaturedMainWindow:
             QGroupBox {
                 font-weight: bold;
                 border: 2px solid #404040;
-                border-radius: 8px;
+                border-radius: 10px;
                 margin-top: 1ex;
-                padding-top: 15px;
+                padding-top: 20px;
                 background-color: #2a2a2a;
-                font-size: 14px;
+                font-size: 15px;
             }
             
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 8px 0 8px;
+                left: 15px;
+                padding: 0 10px 0 10px;
                 color: #0078d4;
                 font-weight: bold;
+                font-size: 15px;
             }
             
             /* Input Fields */
@@ -837,13 +920,19 @@ class FullFeaturedMainWindow:
                 background-color: #3c3c3c;
                 color: #ffffff;
                 border: 2px solid #555555;
-                border-radius: 6px;
-                padding: 8px 12px;
-                font-size: 13px;
+                border-radius: 8px;
+                padding: 10px 15px;
+                font-size: 14px;
+                min-height: 15px;
             }
             
             QLineEdit:focus, QComboBox:focus {
                 border-color: #0078d4;
+                background-color: #404040;
+            }
+            
+            QLineEdit:hover, QComboBox:hover {
+                border-color: #666666;
             }
             
             /* Spin Boxes */
@@ -851,13 +940,19 @@ class FullFeaturedMainWindow:
                 background-color: #3c3c3c;
                 color: #ffffff;
                 border: 2px solid #555555;
-                border-radius: 6px;
-                padding: 8px 12px;
-                font-size: 13px;
+                border-radius: 8px;
+                padding: 10px 15px;
+                font-size: 14px;
+                min-height: 15px;
             }
             
             QSpinBox:focus {
                 border-color: #0078d4;
+                background-color: #404040;
+            }
+            
+            QSpinBox:hover {
+                border-color: #666666;
             }
             
             /* Buttons */
@@ -865,18 +960,21 @@ class FullFeaturedMainWindow:
                 background-color: #0078d4;
                 color: white;
                 border: none;
-                border-radius: 6px;
-                padding: 10px 16px;
+                border-radius: 8px;
+                padding: 12px 20px;
                 font-weight: bold;
-                font-size: 13px;
+                font-size: 14px;
+                min-width: 100px;
             }
             
             QPushButton:hover {
                 background-color: #106ebe;
+                transform: translateY(-1px);
             }
             
             QPushButton:pressed {
                 background-color: #005a9e;
+                transform: translateY(0px);
             }
             
             QPushButton:disabled {
@@ -888,83 +986,138 @@ class FullFeaturedMainWindow:
             QListWidget {
                 background-color: #2b2b2b;
                 color: #ffffff;
-                border: 1px solid #404040;
-                border-radius: 8px;
-                font-size: 13px;
+                border: 2px solid #404040;
+                border-radius: 10px;
+                font-size: 14px;
                 alternate-background-color: #323232;
+                padding: 5px;
             }
             
             QListWidget::item {
-                padding: 12px;
+                padding: 15px;
                 border-bottom: 1px solid #3a3a3a;
-                margin: 1px;
+                margin: 2px;
+                border-radius: 6px;
             }
             
             QListWidget::item:selected {
                 background-color: #0078d4;
                 color: white;
+                border-radius: 6px;
             }
             
             QListWidget::item:hover {
                 background-color: #404040;
+                border-radius: 6px;
             }
             
             /* Text Browser */
             QTextBrowser {
                 background-color: #1e1e1e;
                 color: #ffffff;
-                border: 1px solid #404040;
-                border-radius: 8px;
-                padding: 15px;
-                font-family: 'Segoe UI', Arial, sans-serif;
+                border: 2px solid #404040;
+                border-radius: 10px;
+                padding: 20px;
+                font-family: 'Segoe UI', 'Arial', sans-serif;
                 font-size: 14px;
                 line-height: 1.6;
+            }
+            
+            /* Progress Bar */
+            QProgressBar {
+                border: 2px solid #404040;
+                border-radius: 8px;
+                text-align: center;
+                font-weight: bold;
+                background-color: #2a2a2a;
+                color: #ffffff;
+                font-size: 13px;
+            }
+            
+            QProgressBar::chunk {
+                background-color: #0078d4;
+                border-radius: 6px;
             }
             
             /* Status Bar */
             QStatusBar {
                 background-color: #2a2a2a;
                 color: #ffffff;
-                border-top: 1px solid #404040;
-                padding: 5px;
+                border-top: 2px solid #404040;
+                padding: 8px;
+                font-size: 13px;
             }
             
             /* Menu Bar */
             QMenuBar {
                 background-color: #2a2a2a;
                 color: #ffffff;
-                border-bottom: 1px solid #404040;
+                border-bottom: 2px solid #404040;
+                padding: 5px;
             }
             
             QMenuBar::item {
                 background-color: transparent;
-                padding: 8px 12px;
+                padding: 10px 15px;
+                border-radius: 5px;
             }
             
             QMenuBar::item:selected {
                 background-color: #0078d4;
+                border-radius: 5px;
             }
             
             /* Checkboxes */
             QCheckBox {
-                spacing: 8px;
+                spacing: 10px;
+                font-size: 14px;
             }
             
             QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
+                width: 20px;
+                height: 20px;
                 border: 2px solid #555555;
-                border-radius: 3px;
+                border-radius: 4px;
                 background-color: #3c3c3c;
             }
             
             QCheckBox::indicator:checked {
                 background-color: #0078d4;
                 border-color: #0078d4;
+                image: none;
+            }
+            
+            QCheckBox::indicator:hover {
+                border-color: #666666;
+            }
+            
+            /* Splitter */
+            QSplitter::handle {
+                background-color: #404040;
+                border-radius: 4px;
+            }
+            
+            QSplitter::handle:horizontal {
+                width: 8px;
+            }
+            
+            QSplitter::handle:vertical {
+                height: 8px;
+            }
+            
+            QSplitter::handle:hover {
+                background-color: #0078d4;
+            }
+            
+            /* Form Layout */
+            QFormLayout QLabel {
+                font-weight: bold;
+                color: #cccccc;
+                font-size: 14px;
             }
         """)
     
-    # Event handlers
+    # Event handlers (keeping the same functionality)
     def toggle_token_visibility(self):
         """Toggle token visibility"""
         if self.token_input.echoMode() == self.QLineEdit.EchoMode.Password:
@@ -1004,13 +1157,13 @@ class FullFeaturedMainWindow:
             self.sync_button.setEnabled(False)
             self.sync_button.setText("🔄 Syncing...")
             
-            # Create client and get sample conversations
+            # Create client and get conversations
             self.poe_client = self.PoeAPIClient(token=token, headless=self.headless_checkbox.isChecked())
             
-            # For now, create sample conversations
+            # Get real conversations from Poe.com
             max_conversations = self.max_conversations_spin.value()
-            sample_conversations = self.poe_client._create_sample_conversations(max_conversations)
-            self.conversations = sample_conversations
+            conversations = self.poe_client.get_conversations(max_conversations)
+            self.conversations = conversations
             
             # Update UI
             self.populate_conversation_list()
@@ -1024,7 +1177,7 @@ class FullFeaturedMainWindow:
             self.sync_button.setText("🔄 Sync Conversations")
             
             token_source = "config file" if "Config File" in self.token_source_combo.currentText() else "manual entry"
-            self.status_bar.showMessage(f"✅ Successfully loaded {len(sample_conversations)} conversations using {token_source}")
+            self.status_bar.showMessage(f"✅ Successfully loaded {len(conversations)} conversations using {token_source}")
             self.status_label.setText("🟢 Connected")
             
         except Exception as e:
@@ -1168,12 +1321,12 @@ class FullFeaturedMainWindow:
         
         # Build HTML content
         html = f"""
-        <div style="margin-bottom: 20px; padding: 20px; background-color: #2a2a2a; border-radius: 12px; border: 1px solid #404040;">
-            <h2 style="color: #0078d4; margin: 0 0 10px 0; font-size: 24px;">📝 {conversation.title}</h2>
-            <div style="color: #888; font-size: 14px; margin-bottom: 15px;">
-                <span style="color: #0078d4;">🤖 Bot:</span> {conversation.bot} •
-                <span style="color: #0078d4;">💬 Messages:</span> {len(conversation.messages)} •
-                <span style="color: #0078d4;">📅 Created:</span> {conversation.created_at.strftime('%Y-%m-%d at %H:%M')}
+        <div style="margin-bottom: 25px; padding: 25px; background-color: #2a2a2a; border-radius: 15px; border: 2px solid #404040;">
+            <h2 style="color: #0078d4; margin: 0 0 15px 0; font-size: 28px; font-weight: bold;">📝 {conversation.title}</h2>
+            <div style="color: #aaa; font-size: 16px; margin-bottom: 15px; line-height: 1.5;">
+                <span style="color: #0078d4; font-weight: bold;">🤖 Bot:</span> {conversation.bot} •
+                <span style="color: #0078d4; font-weight: bold;">💬 Messages:</span> {len(conversation.messages)} •
+                <span style="color: #0078d4; font-weight: bold;">📅 Created:</span> {conversation.created_at.strftime('%Y-%m-%d at %H:%M')}
             </div>
         </div>
         """
@@ -1185,12 +1338,12 @@ class FullFeaturedMainWindow:
             role_name = "You" if message.role == "user" else (message.bot_name or "Assistant")
             
             html += f"""
-            <div style="margin-bottom: 20px; padding: 20px; border-left: 5px solid {role_color}; 
-                        background-color: #252525; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
-                <div style="font-weight: bold; color: {role_color}; margin-bottom: 12px; font-size: 16px;">
+            <div style="margin-bottom: 25px; padding: 25px; border-left: 5px solid {role_color}; 
+                        background-color: #252525; border-radius: 15px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">
+                <div style="font-weight: bold; color: {role_color}; margin-bottom: 15px; font-size: 18px;">
                     {role_icon} {role_name} • 🕒 {message.timestamp.strftime('%H:%M:%S')}
                 </div>
-                <div style="white-space: pre-wrap; line-height: 1.6; font-size: 14px; color: #ffffff;">
+                <div style="white-space: pre-wrap; line-height: 1.7; font-size: 15px; color: #ffffff;">
                     {message.content}
                 </div>
             </div>
@@ -1308,14 +1461,14 @@ class FullFeaturedMainWindow:
             <b>Description:</b> A comprehensive tool for searching, organizing, and managing your Poe.com conversations<br><br>
             
             <b>Features:</b><br>
-            • 💬 Conversation browsing and management<br>
+            • 💬 Real Poe.com conversation syncing<br>
             • 🔍 Advanced search and filtering<br>
             • 📊 Analytics and insights<br>
             • 📄 Export/Import capabilities<br>
             • 🔑 Secure token management<br>
             • 🌙 Modern dark theme interface<br><br>
             
-            <b>Built with:</b> PyQt6, Python, and ❤️<br>
+            <b>Built with:</b> PyQt6, Python, Selenium, and ❤️<br>
             <b>Repository:</b> github.com/hkevin01/poe-search
             """)
 
@@ -1342,6 +1495,7 @@ def main():
         # Import PyQt6
         from PyQt6.QtWidgets import QApplication
         from PyQt6.QtCore import Qt
+        from PyQt6.QtGui import QFont
         
         # Create application
         app = QApplication(sys.argv)
@@ -1349,7 +1503,11 @@ def main():
         app.setApplicationDisplayName("Poe Search - Advanced AI Conversation Manager")
         app.setApplicationVersion("1.0.0")
         
-        print("✅ Creating advanced GUI interface...")
+        # Set application font
+        font = QFont("Segoe UI", 10)
+        app.setFont(font)
+        
+        print("✅ Creating enhanced GUI interface...")
         
         # Create and show main window
         main_window_factory = FullFeaturedMainWindow()
@@ -1359,13 +1517,13 @@ def main():
         print("🎉 Enhanced GUI launched successfully!")
         print("💡 Features available:")
         print("   • 🔑 Secure token loading from config file")
-        print("   • 💬 Full conversation browser with search and filtering")
+        print("   • 💬 Real Poe.com conversation syncing")
         print("   • 📝 Message viewer with rich formatting")  
         print("   • 📤 Export/Import capabilities")
         print("   • 📊 Analytics dashboard")
         print("   • 🔍 Advanced search functionality")
         print("   • ⚙️ Complete settings management")
-        print("   • 🌙 Modern dark theme interface")
+        print("   • 🌙 Improved dark theme interface")
         
         if tokens.get('p-b'):
             print("✅ Ready to sync conversations immediately!")

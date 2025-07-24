@@ -1,536 +1,591 @@
-# src/poe_search/api/client.py
 """
-Poe API Client - Enhanced browser automation for Poe.com
-Provides reliable conversation extraction and management.
+Poe API Client - Real Poe.com Integration
+Connects to Poe.com using Selenium WebDriver to fetch actual conversations
 """
 
-import asyncio
 import json
 import time
-import tempfile
 import logging
-from typing import List, Optional, Dict, Any, Union
+import re
 from datetime import datetime, timedelta
+from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
-# Third-party imports
+# Selenium imports for real browser automation
 try:
     from selenium import webdriver
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.common.keys import Keys
+    from selenium.webdriver.chrome.options import Options as ChromeOptions
+    from selenium.webdriver.firefox.options import Options as FirefoxOptions
     from selenium.webdriver.common.action_chains import ActionChains
-    from webdriver_manager.chrome import ChromeDriverManager
+    from selenium.common.exceptions import (
+        TimeoutException, NoSuchElementException, 
+        WebDriverException, ElementClickInterceptedException
+    )
     SELENIUM_AVAILABLE = True
-except ImportError as e:
+except ImportError:
     SELENIUM_AVAILABLE = False
-    SELENIUM_ERROR = str(e)
 
 logger = logging.getLogger(__name__)
 
 @dataclass
 class Message:
     """Represents a single message in a conversation"""
-    id: str
     role: str  # 'user' or 'assistant'
     content: str
     timestamp: datetime
     bot_name: Optional[str] = None
+    message_id: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
+        """Convert message to dictionary"""
         return {
-            'id': self.id,
             'role': self.role,
             'content': self.content,
-            'timestamp': self.timestamp.isoformat() if isinstance(self.timestamp, datetime) else self.timestamp,
-            'bot_name': self.bot_name
+            'timestamp': self.timestamp.isoformat(),
+            'bot_name': self.bot_name,
+            'message_id': self.message_id
         }
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Message':
-        timestamp = data['timestamp']
-        if isinstance(timestamp, str):
-            timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-        
+        """Create message from dictionary"""
         return cls(
-            id=data['id'],
             role=data['role'],
             content=data['content'],
-            timestamp=timestamp,
-            bot_name=data.get('bot_name')
+            timestamp=datetime.fromisoformat(data['timestamp']),
+            bot_name=data.get('bot_name'),
+            message_id=data.get('message_id')
         )
 
 @dataclass
 class Conversation:
-    """Represents a complete conversation"""
+    """Represents a complete conversation with a bot"""
     id: str
     title: str
     bot: str
     messages: List[Message]
     created_at: datetime
-    updated_at: datetime
-    category: Optional[str] = None
-    tags: List[str] = None
-    
-    def __post_init__(self):
-        if self.tags is None:
-            self.tags = []
+    updated_at: Optional[datetime] = None
+    url: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
+        """Convert conversation to dictionary"""
         return {
             'id': self.id,
             'title': self.title,
             'bot': self.bot,
             'messages': [msg.to_dict() for msg in self.messages],
-            'created_at': self.created_at.isoformat() if isinstance(self.created_at, datetime) else self.created_at,
-            'updated_at': self.updated_at.isoformat() if isinstance(self.updated_at, datetime) else self.updated_at,
-            'category': self.category,
-            'tags': self.tags
+            'created_at': self.created_at.isoformat(),
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'url': self.url
         }
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Conversation':
-        created_at = data['created_at']
-        if isinstance(created_at, str):
-            created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-        
-        updated_at = data['updated_at']
-        if isinstance(updated_at, str):
-            updated_at = datetime.fromisoformat(updated_at.replace('Z', '+00:00'))
-        
-        messages = [Message.from_dict(msg) for msg in data.get('messages', [])]
-        
+        """Create conversation from dictionary"""
         return cls(
             id=data['id'],
             title=data['title'],
             bot=data['bot'],
-            messages=messages,
-            created_at=created_at,
-            updated_at=updated_at,
-            category=data.get('category'),
-            tags=data.get('tags', [])
+            messages=[Message.from_dict(msg) for msg in data['messages']],
+            created_at=datetime.fromisoformat(data['created_at']),
+            updated_at=datetime.fromisoformat(data['updated_at']) if data.get('updated_at') else None,
+            url=data.get('url')
         )
 
 class PoeAPIClient:
-    """Enhanced Poe API client using browser automation"""
+    """Real Poe.com API client using browser automation"""
     
-    def __init__(self, token: str, headless: bool = False, rate_limit: float = 2.0):
+    def __init__(self, token: str, headless: bool = True, browser: str = "chrome"):
+        """Initialize the Poe client with real browser automation"""
         if not SELENIUM_AVAILABLE:
-            raise ImportError(f"Selenium is required but not available: {SELENIUM_ERROR}")
+            raise ImportError("Selenium is required for Poe integration. Install with: pip install selenium")
         
         self.token = token
         self.headless = headless
-        self.rate_limit = rate_limit
+        self.browser = browser
         self.driver = None
-        self.is_connected = False
-        self.conversations_cache = []
-        self._setup_logging()
+        self.conversations = []
+        
+        # Rate limiting
+        self.last_request_time = 0
+        self.min_request_interval = 2.0  # 2 seconds between requests
+        
+        logger.info(f"Initializing Poe client (headless={headless}, browser={browser})")
     
-    def _setup_logging(self):
-        """Setup logging for the client"""
-        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-    
-    async def connect(self) -> bool:
-        """Initialize browser connection to Poe with enhanced reliability"""
+    def _setup_driver(self):
+        """Setup and configure the web driver"""
+        if self.driver:
+            return self.driver
+        
         try:
-            self.logger.info("🔄 Initializing enhanced Poe browser connection...")
+            if self.browser.lower() == "chrome":
+                options = ChromeOptions()
+                if self.headless:
+                    options.add_argument("--headless")
+                options.add_argument("--no-sandbox")
+                options.add_argument("--disable-dev-shm-usage")
+                options.add_argument("--disable-gpu")
+                options.add_argument("--window-size=1920,1080")
+                options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+                
+                self.driver = webdriver.Chrome(options=options)
             
-            # Enhanced Chrome options for better reliability
-            chrome_options = Options()
-            temp_dir = tempfile.mkdtemp()
-            chrome_options.add_argument(f"--user-data-dir={temp_dir}")
+            elif self.browser.lower() == "firefox":
+                options = FirefoxOptions()
+                if self.headless:
+                    options.add_argument("--headless")
+                options.add_argument("--width=1920")
+                options.add_argument("--height=1080")
+                
+                self.driver = webdriver.Firefox(options=options)
             
-            if self.headless:
-                chrome_options.add_argument("--headless=new")  # Use new headless mode
+            else:
+                raise ValueError(f"Unsupported browser: {self.browser}")
             
-            # Enhanced browser options
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-            chrome_options.add_argument("--disable-web-security")
-            chrome_options.add_argument("--disable-features=VizDisplayCompositor")
-            chrome_options.add_argument("--window-size=1920,1080")
-            chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            chrome_options.add_experimental_option('useAutomationExtension', False)
+            # Set timeouts
+            self.driver.implicitly_wait(10)
+            self.driver.set_page_load_timeout(30)
             
-            # Additional options for stability
-            chrome_options.add_argument("--disable-extensions")
-            chrome_options.add_argument("--disable-plugins")
-            chrome_options.add_argument("--disable-images")  # Speed up loading
+            logger.info(f"Successfully initialized {self.browser} driver")
+            return self.driver
             
-            # Initialize driver with enhanced settings
-            try:
-                service = webdriver.chrome.service.Service(ChromeDriverManager().install())
-                self.driver = webdriver.Chrome(service=service, options=chrome_options)
-            except Exception as e:
-                self.logger.error(f"Failed to initialize Chrome driver: {e}")
-                return False
+        except Exception as e:
+            logger.error(f"Failed to setup web driver: {e}")
+            raise
+    
+    def _rate_limit(self):
+        """Implement rate limiting between requests"""
+        current_time = time.time()
+        time_since_last = current_time - self.last_request_time
+        
+        if time_since_last < self.min_request_interval:
+            sleep_time = self.min_request_interval - time_since_last
+            logger.debug(f"Rate limiting: sleeping for {sleep_time:.2f} seconds")
+            time.sleep(sleep_time)
+        
+        self.last_request_time = time.time()
+    
+    def connect(self):
+        """Connect to Poe.com and authenticate"""
+        self._setup_driver()
+        self._rate_limit()
+        
+        try:
+            logger.info("Connecting to Poe.com...")
+            self.driver.get("https://poe.com")
             
-            # Enhanced stealth mode
-            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            self.driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-                "userAgent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            # Add the authentication cookie
+            logger.info("Setting authentication cookie...")
+            self.driver.add_cookie({
+                'name': 'p-b',
+                'value': self.token,
+                'domain': '.poe.com',
+                'path': '/',
+                'secure': True,
+                'httpOnly': True
             })
             
-            # Navigate to Poe with retry logic
-            for attempt in range(3):
-                try:
-                    self.logger.info(f"🌐 Opening Poe.com (attempt {attempt + 1})...")
-                    self.driver.get("https://poe.com")
-                    await asyncio.sleep(3)
+            # Refresh to apply authentication
+            self.driver.refresh()
+            time.sleep(3)
+            
+            # Verify we're logged in by checking for user-specific elements
+            try:
+                # Look for conversation list or chat interface
+                WebDriverWait(self.driver, 15).until(
+                    EC.any_of(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "[class*='ChatPage']")),
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "[class*='conversation']")),
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "[data-testid*='chat']")),
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "main"))
+                    )
+                )
+                logger.info("✅ Successfully authenticated with Poe.com")
+                return True
+                
+            except TimeoutException:
+                logger.error("❌ Authentication failed - couldn't find chat interface")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to connect to Poe.com: {e}")
+            return False
+    
+    def get_conversation_list(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get list of conversations from Poe.com"""
+        if not self.driver:
+            if not self.connect():
+                raise Exception("Failed to connect to Poe.com")
+        
+        self._rate_limit()
+        
+        try:
+            logger.info(f"Fetching conversation list (limit: {limit})...")
+            
+            # Navigate to conversations/history page
+            # Poe.com structure may vary, try multiple approaches
+            conversation_links = []
+            
+            # Method 1: Look for conversation links in sidebar
+            try:
+                sidebar_conversations = self.driver.find_elements(
+                    By.CSS_SELECTOR, 
+                    "a[href*='/chat/'], a[href*='/conversation/'], [class*='conversation'] a, [class*='ChatPage'] a"
+                )
+                
+                for link in sidebar_conversations[:limit]:
+                    href = link.get_attribute('href')
+                    title = link.text.strip() or link.get_attribute('title') or "Untitled"
                     
-                    # Set authentication cookie if provided
-                    if self.token:
-                        self.logger.info("🔑 Setting authentication cookie...")
-                        self.driver.add_cookie({
-                            'name': 'p-b',
-                            'value': self.token,
-                            'domain': '.poe.com',
-                            'path': '/',
-                            'secure': True
+                    if href and ('/chat/' in href or '/conversation/' in href):
+                        conversation_links.append({
+                            'url': href,
+                            'title': title,
+                            'id': self._extract_conversation_id(href)
                         })
                         
-                        # Refresh to apply authentication
-                        self.driver.refresh()
-                        await asyncio.sleep(5)
-                    
-                    # Enhanced login detection
-                    login_indicators = [
-                        "textarea[placeholder*='Talk']",
-                        "textarea[placeholder*='Message']",
-                        "[data-testid*='textInput']",
-                        "textarea",
-                        "[contenteditable='true']"
+            except Exception as e:
+                logger.warning(f"Method 1 failed: {e}")
+            
+            # Method 2: Look for conversation history via navigation
+            if not conversation_links:
+                try:
+                    # Try to navigate to history/conversations page
+                    history_urls = [
+                        "https://poe.com/chats",
+                        "https://poe.com/conversations", 
+                        "https://poe.com/history"
                     ]
                     
-                    for indicator in login_indicators:
+                    for url in history_urls:
                         try:
-                            element = WebDriverWait(self.driver, 10).until(
-                                EC.presence_of_element_located((By.CSS_SELECTOR, indicator))
+                            self.driver.get(url)
+                            time.sleep(2)
+                            
+                            conversation_elements = self.driver.find_elements(
+                                By.CSS_SELECTOR,
+                                "a[href*='/chat/'], [data-testid*='conversation'], [class*='conversation']"
                             )
-                            if element:
-                                self.is_connected = True
-                                self.logger.info("✅ Successfully connected to Poe!")
-                                return True
-                        except:
+                            
+                            if conversation_elements:
+                                for elem in conversation_elements[:limit]:
+                                    link = elem.find_element(By.TAG_NAME, 'a') if elem.tag_name != 'a' else elem
+                                    href = link.get_attribute('href')
+                                    title = elem.text.strip() or "Untitled"
+                                    
+                                    if href and '/chat/' in href:
+                                        conversation_links.append({
+                                            'url': href,
+                                            'title': title,
+                                            'id': self._extract_conversation_id(href)
+                                        })
+                                break
+                                
+                        except Exception as e:
+                            logger.debug(f"History URL {url} failed: {e}")
                             continue
-                    
-                    if attempt == 2:
-                        self.logger.warning("⚠️ Could not detect login. Manual login may be required.")
-                        return False
-                        
+                            
                 except Exception as e:
-                    self.logger.warning(f"⚠️ Attempt {attempt + 1} failed: {e}")
-                    if attempt == 2:
-                        raise e
-                    await asyncio.sleep(2)
+                    logger.warning(f"Method 2 failed: {e}")
             
-            return False
-                
+            # Method 3: Extract from current page JavaScript/DOM
+            if not conversation_links:
+                try:
+                    # Try to extract conversation data from page scripts or DOM
+                    scripts = self.driver.find_elements(By.TAG_NAME, 'script')
+                    for script in scripts:
+                        content = script.get_attribute('innerHTML')
+                        if content and ('chat' in content.lower() or 'conversation' in content.lower()):
+                            # Look for conversation IDs or URLs in script content
+                            chat_matches = re.findall(r'["\']([^"\']*chat[^"\']*)["\']', content)
+                            for match in chat_matches[:limit]:
+                                if 'chat/' in match or 'conversation/' in match:
+                                    conversation_links.append({
+                                        'url': f"https://poe.com{match}" if match.startswith('/') else match,
+                                        'title': 'Extracted Conversation',
+                                        'id': self._extract_conversation_id(match)
+                                    })
+                except Exception as e:
+                    logger.warning(f"Method 3 failed: {e}")
+            
+            logger.info(f"✅ Found {len(conversation_links)} conversations")
+            return conversation_links
+            
         except Exception as e:
-            self.logger.error(f"❌ Failed to connect to Poe: {e}")
-            return False
-    
-    async def get_conversations(self, limit: int = 100) -> List[Conversation]:
-        """Enhanced conversation fetching with multiple strategies"""
-        if not self.is_connected:
-            self.logger.error("❌ Not connected to Poe. Call connect() first.")
+            logger.error(f"❌ Failed to get conversation list: {e}")
             return []
+    
+    def _extract_conversation_id(self, url_or_href: str) -> str:
+        """Extract conversation ID from URL"""
+        # Extract ID from URLs like /chat/2abc123def or /conversation/xyz789
+        match = re.search(r'/(?:chat|conversation)/([a-zA-Z0-9]+)', url_or_href)
+        return match.group(1) if match else url_or_href.split('/')[-1]
+    
+    def get_conversation_details(self, conversation_url: str) -> Optional[Conversation]:
+        """Get full conversation details from a specific conversation URL"""
+        if not self.driver:
+            if not self.connect():
+                return None
+        
+        self._rate_limit()
         
         try:
-            self.logger.info(f"📥 Fetching up to {limit} conversations...")
-            conversations = []
+            logger.info(f"Fetching conversation: {conversation_url}")
+            self.driver.get(conversation_url)
+            time.sleep(3)
             
-            # Strategy 1: Try to navigate to chat history page
-            chat_urls = [
-                "https://poe.com",
-                "https://poe.com/chats",
-                "https://poe.com/chat"
-            ]
-            
-            for url in chat_urls:
-                try:
-                    self.driver.get(url)
-                    await asyncio.sleep(3)
-                    
-                    # Enhanced conversation detection
-                    conversation_selectors = [
-                        # New Poe interface selectors
-                        "[data-testid*='chat']",
-                        "[data-testid*='conversation']",
-                        "a[href*='/chat/']",
-                        "div[class*='ChatListItem']",
-                        "div[class*='ConversationItem']",
-                        # Generic selectors
-                        "[role='button'][class*='chat']",
-                        "button[class*='conversation']",
-                        ".chat-item",
-                        ".conversation-item"
-                    ]
-                    
-                    found_conversations = False
-                    for selector in conversation_selectors:
-                        try:
-                            elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                            if len(elements) > 5:  # Likely found conversation list
-                                self.logger.info(f"Found {len(elements)} conversation elements with selector: {selector}")
-                                conversations = await self._extract_conversations_from_elements(elements[:limit])
-                                found_conversations = True
-                                break
-                        except Exception as e:
-                            self.logger.debug(f"Selector {selector} failed: {e}")
-                            continue
-                    
-                    if found_conversations:
-                        break
-                        
-                except Exception as e:
-                    self.logger.warning(f"Failed to load {url}: {e}")
-                    continue
-            
-            # Strategy 2: If no conversations found, create sample data for testing
-            if not conversations:
-                self.logger.info("🔄 No conversations found, creating sample data...")
-                conversations = self._create_sample_conversations(limit)
-            
-            # Cache results
-            self.conversations_cache = conversations
-            
-            self.logger.info(f"✅ Successfully fetched {len(conversations)} conversations")
-            return conversations
-            
-        except Exception as e:
-            self.logger.error(f"❌ Failed to fetch conversations: {e}")
-            return self._create_sample_conversations(min(limit, 5))  # Fallback
-    
-    async def _extract_conversations_from_elements(self, elements) -> List[Conversation]:
-        """Extract conversation data from DOM elements"""
-        conversations = []
-        
-        for i, element in enumerate(elements):
-            try:
-                # Extract conversation title
-                title_selectors = [
-                    ".conversation-title",
-                    "[data-testid*='title']",
-                    "h3", "h4", "h5",
-                    ".title",
-                    "span[class*='title']"
-                ]
-                
-                title = f"Conversation {i+1}"
-                for selector in title_selectors:
-                    try:
-                        title_elem = element.find_element(By.CSS_SELECTOR, selector)
-                        if title_elem.text.strip():
-                            title = title_elem.text.strip()
-                            break
-                    except:
-                        continue
-                
-                # Extract conversation ID from href or data attributes
-                conv_id = f"conv_{i+1}"
-                try:
-                    href = element.get_attribute('href')
-                    if href and '/chat/' in href:
-                        conv_id = href.split('/chat/')[-1].split('?')[0]
-                except:
-                    pass
-                
-                # Extract bot information
-                bot_selectors = [
-                    "[class*='bot']",
-                    "[data-testid*='bot']",
-                    ".model-name",
-                    "span[class*='model']"
-                ]
-                
-                bot = "Assistant"
-                for selector in bot_selectors:
-                    try:
-                        bot_elem = element.find_element(By.CSS_SELECTOR, selector)
-                        if bot_elem.text.strip():
-                            bot = bot_elem.text.strip()
-                            break
-                    except:
-                        continue
-                
-                # Create conversation object with sample messages
-                messages = [
-                    Message(
-                        id=f"msg_{conv_id}_1",
-                        role="user",
-                        content=f"Hello, this is a sample message for {title}",
-                        timestamp=datetime.now() - timedelta(hours=i*2),
-                        bot_name=None
-                    ),
-                    Message(
-                        id=f"msg_{conv_id}_2",
-                        role="assistant",
-                        content=f"Hello! I'm {bot}. This is a sample response for conversation: {title}",
-                        timestamp=datetime.now() - timedelta(hours=i*2-1),
-                        bot_name=bot
-                    )
-                ]
-                
-                conversation = Conversation(
-                    id=conv_id,
-                    title=title[:100],  # Limit title length
-                    bot=bot,
-                    messages=messages,
-                    created_at=datetime.now() - timedelta(days=i),
-                    updated_at=datetime.now() - timedelta(hours=i)
+            # Wait for conversation to load
+            WebDriverWait(self.driver, 15).until(
+                EC.any_of(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "[class*='message']")),
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "[class*='Message']")),
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "[data-testid*='message']")),
+                    EC.presence_of_element_located((By.CSS_SELECTOR, ".conversation"))
                 )
-                
-                conversations.append(conversation)
-                
-                # Rate limiting
-                await asyncio.sleep(self.rate_limit / 10)
-                
-            except Exception as e:
-                self.logger.warning(f"⚠️ Failed to extract conversation {i}: {e}")
-                continue
-        
-        return conversations
-    
-    def _create_sample_conversations(self, count: int = 5) -> List[Conversation]:
-        """Create sample conversations for testing when real data isn't available"""
-        conversations = []
-        
-        sample_data = [
-            ("Python Programming Help", "Claude", "How do I create a web scraper in Python?"),
-            ("Creative Writing", "GPT-4", "Write a short story about AI"),
-            ("Math Problem Solving", "Claude", "Solve this calculus problem"),
-            ("Code Review", "GPT-4", "Please review my JavaScript code"),
-            ("Research Assistant", "Claude", "Help me research renewable energy"),
-        ]
-        
-        for i in range(min(count, len(sample_data))):
-            title, bot, user_msg = sample_data[i]
-            
-            messages = [
-                Message(
-                    id=f"sample_msg_{i}_1",
-                    role="user",
-                    content=user_msg,
-                    timestamp=datetime.now() - timedelta(hours=i*3),
-                    bot_name=None
-                ),
-                Message(
-                    id=f"sample_msg_{i}_2",
-                    role="assistant",
-                    content=f"Hello! I'm {bot}. I'd be happy to help you with {title.lower()}. This is a sample conversation for demonstration purposes.",
-                    timestamp=datetime.now() - timedelta(hours=i*3-1),
-                    bot_name=bot
-                )
-            ]
-            
-            conversation = Conversation(
-                id=f"sample_conv_{i}",
-                title=title,
-                bot=bot,
-                messages=messages,
-                created_at=datetime.now() - timedelta(days=i+1),
-                updated_at=datetime.now() - timedelta(hours=i)
             )
             
-            conversations.append(conversation)
-        
-        return conversations
-    
-    async def get_conversation_messages(self, conversation_id: str) -> List[Message]:
-        """Enhanced message extraction for a specific conversation"""
-        if not self.is_connected:
-            return []
-        
-        try:
-            self.logger.info(f"📬 Fetching messages for conversation: {conversation_id}")
+            # Extract conversation title
+            title = "Untitled Conversation"
+            try:
+                title_selectors = [
+                    "h1", "h2", ".title", "[class*='title']", 
+                    "[data-testid*='title']", ".conversation-title"
+                ]
+                for selector in title_selectors:
+                    title_elem = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    if title_elem and title_elem.text.strip():
+                        title = title_elem.text.strip()
+                        break
+            except:
+                # If no title found, use page title or generate from first message
+                title = self.driver.title or "Untitled Conversation"
             
-            # For sample conversations, return existing messages
-            for conv in self.conversations_cache:
-                if conv.id == conversation_id:
-                    return conv.messages
-            
-            # If not found in cache, create sample messages
-            messages = [
-                Message(
-                    id=f"msg_{conversation_id}_1",
-                    role="user",
-                    content="This is a sample user message",
-                    timestamp=datetime.now() - timedelta(minutes=10),
-                    bot_name=None
-                ),
-                Message(
-                    id=f"msg_{conversation_id}_2",
-                    role="assistant",
-                    content="This is a sample assistant response",
-                    timestamp=datetime.now() - timedelta(minutes=5),
-                    bot_name="Assistant"
+            # Extract bot name
+            bot_name = "Assistant"
+            try:
+                # Look for bot indicators in the page
+                bot_indicators = self.driver.find_elements(
+                    By.CSS_SELECTOR, 
+                    "[class*='bot'], [class*='assistant'], [data-testid*='bot']"
                 )
+                for indicator in bot_indicators:
+                    text = indicator.text.strip()
+                    if text and len(text) < 50:  # Reasonable bot name length
+                        bot_name = text
+                        break
+            except:
+                pass
+            
+            # Extract messages
+            messages = []
+            message_selectors = [
+                "[class*='message']", "[class*='Message']", 
+                "[data-testid*='message']", ".conversation-message",
+                "[role='group']", ".chat-message"
             ]
             
-            return messages
+            message_elements = []
+            for selector in message_selectors:
+                try:
+                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    if elements:
+                        message_elements = elements
+                        break
+                except:
+                    continue
+            
+            if not message_elements:
+                logger.warning("No message elements found, trying fallback methods")
+                # Fallback: look for any elements that might contain conversation text
+                message_elements = self.driver.find_elements(By.CSS_SELECTOR, "div, p, span")
+                message_elements = [elem for elem in message_elements if elem.text and len(elem.text.strip()) > 10]
+            
+            for i, elem in enumerate(message_elements):
+                try:
+                    text = elem.text.strip()
+                    if not text or len(text) < 3:
+                        continue
+                    
+                    # Determine message role (user vs assistant)
+                    role = "assistant"  # Default to assistant
+                    
+                    # Look for user indicators
+                    user_indicators = [
+                        "user", "you", "human", "me", "my",
+                        "[class*='user']", "[class*='human']"
+                    ]
+                    
+                    elem_class = elem.get_attribute('class') or ""
+                    elem_html = elem.get_attribute('outerHTML') or ""
+                    
+                    for indicator in user_indicators:
+                        if indicator in elem_class.lower() or indicator in elem_html.lower():
+                            role = "user"
+                            break
+                    
+                    # Alternating pattern heuristic (often user, assistant, user, assistant...)
+                    if i % 2 == 0:
+                        role = "user"
+                    else:
+                        role = "assistant"
+                    
+                    # Create message
+                    message = Message(
+                        role=role,
+                        content=text,
+                        timestamp=datetime.now() - timedelta(minutes=len(message_elements) - i),
+                        bot_name=bot_name if role == "assistant" else None,
+                        message_id=f"msg_{i}"
+                    )
+                    
+                    messages.append(message)
+                    
+                except Exception as e:
+                    logger.debug(f"Error processing message element {i}: {e}")
+                    continue
+            
+            if not messages:
+                logger.warning("No messages extracted from conversation")
+                return None
+            
+            # Create conversation object
+            conversation = Conversation(
+                id=self._extract_conversation_id(conversation_url),
+                title=title,
+                bot=bot_name,
+                messages=messages,
+                created_at=datetime.now() - timedelta(days=1),  # Estimate
+                url=conversation_url
+            )
+            
+            logger.info(f"✅ Extracted conversation '{title}' with {len(messages)} messages")
+            return conversation
             
         except Exception as e:
-            self.logger.error(f"❌ Failed to fetch messages for {conversation_id}: {e}")
+            logger.error(f"❌ Failed to get conversation details: {e}")
+            return None
+    
+    def get_conversations(self, limit: int = 10) -> List[Conversation]:
+        """Get multiple conversations from Poe.com"""
+        logger.info(f"Getting {limit} conversations from Poe.com...")
+        
+        # Get conversation list
+        conversation_list = self.get_conversation_list(limit)
+        
+        if not conversation_list:
+            logger.warning("No conversations found")
             return []
-    
-    async def search_conversations(self, query: str, limit: int = 50) -> List[Conversation]:
-        """Search conversations by content"""
-        # Use cached conversations for local search
-        if not self.conversations_cache:
-            await self.get_conversations(limit)
         
-        matching = []
-        query_lower = query.lower()
+        conversations = []
         
-        for conv in self.conversations_cache:
-            # Search in title
-            if query_lower in conv.title.lower():
-                matching.append(conv)
+        for i, conv_info in enumerate(conversation_list[:limit]):
+            try:
+                logger.info(f"Processing conversation {i+1}/{len(conversation_list)}: {conv_info.get('title', 'Unknown')}")
+                
+                conversation = self.get_conversation_details(conv_info['url'])
+                if conversation:
+                    conversations.append(conversation)
+                
+                # Rate limiting between conversations
+                if i < len(conversation_list) - 1:
+                    time.sleep(1)
+                    
+            except Exception as e:
+                logger.error(f"Failed to process conversation {i+1}: {e}")
                 continue
-            
-            # Search in messages if loaded
-            for message in conv.messages:
-                if query_lower in message.content.lower():
-                    matching.append(conv)
-                    break
         
-        return matching[:limit]
+        logger.info(f"✅ Successfully retrieved {len(conversations)} conversations")
+        self.conversations = conversations
+        return conversations
     
-    def disconnect(self):
-        """Clean disconnect"""
+    def close(self):
+        """Clean up and close the browser driver"""
         if self.driver:
             try:
                 self.driver.quit()
-            except:
-                pass
-            self.driver = None
-            self.is_connected = False
-            self.logger.info("🔌 Disconnected from Poe")
+                logger.info("Browser driver closed")
+            except Exception as e:
+                logger.warning(f"Error closing driver: {e}")
+            finally:
+                self.driver = None
     
-    def __del__(self):
-        """Cleanup on destruction"""
-        self.disconnect()
+    def __enter__(self):
+        """Context manager entry"""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit"""
+        self.close()
+    
+    # Backward compatibility method for GUI
+    def _create_sample_conversations(self, count: int = 10) -> List[Conversation]:
+        """Fallback method that returns real conversations or creates samples"""
+        try:
+            # Try to get real conversations first
+            real_conversations = self.get_conversations(count)
+            if real_conversations:
+                return real_conversations
+        except Exception as e:
+            logger.warning(f"Failed to get real conversations, falling back to samples: {e}")
+        
+        # Fallback to sample data if real fetching fails
+        logger.info("Creating sample conversations as fallback...")
+        sample_conversations = []
+        
+        bots = ["Claude-3", "GPT-4", "Gemini-Pro", "Claude-Instant", "GPT-3.5"]
+        topics = [
+            "Python Programming Help",
+            "Machine Learning Concepts", 
+            "Web Development Tips",
+            "Data Analysis Project",
+            "Algorithm Optimization",
+            "Database Design Question",
+            "API Integration Help",
+            "Code Review Session",
+            "Technical Architecture",
+            "Debugging Session"
+        ]
+        
+        for i in range(min(count, len(topics))):
+            messages = []
+            
+            # User question
+            user_content = f"I need help with {topics[i].lower()}. Can you provide some guidance?"
+            messages.append(Message(
+                role="user",
+                content=user_content,
+                timestamp=datetime.now() - timedelta(hours=i),
+                message_id=f"user_msg_{i}"
+            ))
+            
+            # Assistant response
+            bot_name = bots[i % len(bots)]
+            assistant_content = f"I'd be happy to help you with {topics[i].lower()}! Here's a comprehensive approach..."
+            messages.append(Message(
+                role="assistant", 
+                content=assistant_content,
+                timestamp=datetime.now() - timedelta(hours=i, minutes=5),
+                bot_name=bot_name,
+                message_id=f"assistant_msg_{i}"
+            ))
+            
+            conversation = Conversation(
+                id=f"sample_conv_{i}",
+                title=topics[i],
+                bot=bot_name,
+                messages=messages,
+                created_at=datetime.now() - timedelta(hours=i),
+                url=f"https://poe.com/chat/sample_{i}"
+            )
+            
+            sample_conversations.append(conversation)
+        
+        return sample_conversations
 
-# Factory function for backward compatibility
-def create_poe_client(token: str, headless: bool = False, rate_limit: float = 2.0) -> PoeAPIClient:
-    """Create a configured Poe API client"""
-    return PoeAPIClient(token=token, headless=headless, rate_limit=rate_limit)
-
-# Aliases for different naming conventions
-PoeClient = PoeAPIClient  # Alternative name
-PoeSearchClient = PoeAPIClient  # Another alternative
-
-# Export all public classes and functions
-__all__ = [
-    'PoeAPIClient',
-    'PoeClient', 
-    'PoeSearchClient',
-    'Message',
-    'Conversation',
-    'create_poe_client'
-]
+# Export main classes
+__all__ = ['PoeAPIClient', 'Conversation', 'Message']

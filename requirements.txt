@@ -4,4 +4,6 @@ poe-api-wrapper
 requests
 python-dotenv
 PyQt6
-poe-api
+selenium>=4.15.0
+webdriver-manager>=4.0.0
+# sqlite-fts5 is not a PyPI package; FTS5 is built into modern SQLite

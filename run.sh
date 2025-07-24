@@ -20,12 +20,12 @@ if [ -d ".venv" ]; then
     source .venv/bin/activate
     log_and_echo "Activated virtual environment."
     # Ensure required packages are installed
-    pip install --quiet fastapi-poe browser-cookie3 poe-api-wrapper
+    pip install --quiet fastapi-poe browser-cookie3 poe-api-wrapper selenium webdriver-manager PyQt6
     log_and_echo "Ensured required Python packages are installed."
 elif [ -d "venv" ]; then
     source venv/bin/activate
     log_and_echo "Activated virtual environment (legacy)."
-    pip install --quiet fastapi-poe browser-cookie3 poe-api-wrapper
+    pip install --quiet fastapi-poe browser-cookie3 poe-api-wrapper selenium webdriver-manager PyQt6
     log_and_echo "Ensured required Python packages are installed."
 else
     log_and_echo "ERROR: No virtual environment found. Please create one with 'python -m venv .venv' and install dependencies."

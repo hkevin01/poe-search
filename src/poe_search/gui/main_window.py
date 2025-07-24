@@ -52,6 +52,10 @@ from poe_search.gui.workers.search_worker import SearchWorker
 from poe_search.workers.sync_worker import SyncWorker
 from poe_search.storage.database import Database
 from poe_search.utils.config import load_config
+from poe_search.database.manager import DatabaseManager
+from .components.chat_list import ChatListWidget
+from .components.chat_viewer import ChatViewerWidget
+from .components.search_bar import SearchBarWidget
 
 # Setup comprehensive logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -365,6 +369,27 @@ class MainWindow(QMainWindow):
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         main_layout.addWidget(self.progress_bar)
+        
+        # Splitter for chat list and viewer
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        main_layout.addWidget(splitter)
+        
+        # Left panel for search bar and chat list
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        self.search_bar = SearchBarWidget()
+        self.chat_list = ChatListWidget()
+        left_layout.addWidget(self.search_bar)
+        left_layout.addWidget(self.chat_list)
+        splitter.addWidget(left_panel)
+        
+        # Chat viewer on the right
+        self.chat_viewer = ChatViewerWidget()
+        splitter.addWidget(self.chat_viewer)
+        
+        # Set stretch factors
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
     
     def setup_status_bar(self):
         """Set up the status bar."""
@@ -405,6 +430,10 @@ class MainWindow(QMainWindow):
         
         # Analytics widget connections - REMOVED to prevent recursion
         # self.analytics_widget.refresh_requested.connect(self.refresh_analytics)
+        
+        # Chat list and viewer connections
+        self.chat_list.chat_selected.connect(self.display_conversation)
+        self.search_bar.search_changed.connect(self.filter_chats)
     
     def setup_client(self):
         """Set up the Poe API client with authentication."""
@@ -1553,6 +1582,15 @@ class MainWindow(QMainWindow):
                     self.analytics_widget.set_database(self.database)
                     self.logger.info("Database set for analytics widget")
                     
+            # Set up database for chat list and viewer
+            if hasattr(self, 'chat_list') and self.chat_list:
+                self.chat_list.set_database(self.database)
+                self.logger.info("Database set for chat list")
+            
+            if hasattr(self, 'chat_viewer') and self.chat_viewer:
+                self.chat_viewer.set_database(self.database)
+                self.logger.info("Database set for chat viewer")
+            
         except Exception as e:
             self.logger.error(f"Error setting up database for widgets: {e}")
     

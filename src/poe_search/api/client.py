@@ -1,242 +1,274 @@
-"""API client for Poe.com using poe-api-wrapper."""
-
-import os
-import json
-import logging
-import requests
+# src/poe_search/api/client.py
+import asyncio
+import tempfile
 import time
-from typing import Any, Dict, List, Optional
-from dotenv import load_dotenv
-from urllib.parse import unquote
+from typing import List, Optional, Dict, Any
+from datetime import datetime, timedelta
+from dataclasses import dataclass
 
-# Load environment variables from .env if present
-load_dotenv()
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.keys import Keys
+from webdriver_manager.chrome import ChromeDriverManager
 
-LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
-logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger("poe_search.api.client")
+from ..models.conversation import Conversation, Message
+from ..utils.logger import get_logger
 
-# Helper to load Poe token from JSON config if env not set
-POE_TOKEN = os.environ.get("POE_TOKEN")
-if not POE_TOKEN:
-    # Try config files relative to project root
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../'))
-    config_paths = [
-        os.path.join(project_root, 'config', 'poe_tokens.json'),
-        os.path.join(project_root, 'config', 'secrets.json'),
-    ]
-    for path in config_paths:
+logger = get_logger(__name__)
+
+@dataclass
+class PoeApiConfig:
+    token: str
+    rate_limit_delay: float = 2.0
+    max_retries: int = 3
+    headless: bool = False
+
+class PoeApiClient:
+    """Working Poe API client using browser automation"""
+    
+    def __init__(self, config: PoeApiConfig):
+        self.config = config
+        self.driver = None
+        self.is_connected = False
+        
+    async def connect(self) -> bool:
+        """Initialize browser connection to Poe"""
         try:
-            with open(path) as f:
-                data = json.load(f)
-                POE_TOKEN = unquote(data.get("p-b", ""))
-                logger.info(f"Loaded POE_TOKEN from {path}")
-                break
-        except Exception:
-            continue
-    if not POE_TOKEN:
-        logger.error("POE_TOKEN environment variable not set and could not load from JSON config.")
-        raise RuntimeError("POE_TOKEN required for Poe API access.")
-
-GRAPHQL_ENDPOINT = "https://poe.com/api/gql_POST"
-DEFAULT_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; PoeSearchBot/1.0; +https://github.com/hkevin01/poe-search)",
-    "Accept": "application/json",
-    "Content-Type": "application/json",
-    "Cookie": f"p-b={POE_TOKEN}",
-    "Origin": "https://poe.com",
-    "Referer": "https://poe.com/",
-}
-
-RATE_LIMIT = int(os.environ.get("RATE_LIMIT_REQUESTS_PER_MINUTE", 30))
-MAX_RETRIES = int(os.environ.get("MAX_RETRIES", 3))
-RETRY_BACKOFF = 2  # seconds
-
-class PoeAPIClient:
-    def __init__(self, token: Optional[str] = None):
-        self.token = token or POE_TOKEN
-        self.session = requests.Session()
-        self.session.headers.update(DEFAULT_HEADERS)
-        # Update headers with the actual token
-        if self.token:
-            self.session.headers.update({"Cookie": f"p-b={self.token}"})
-
-    def _graphql(self, query: str, variables: dict, retry: int = 0) -> Any:
-        payload = {
-            "query": query,
-            "variables": variables,
-        }
-        try:
-            response = self.session.post(GRAPHQL_ENDPOINT, json=payload, timeout=15)
-            if response.status_code == 429:
-                logger.warning("Rate limited by Poe.com, sleeping before retry...")
-                if retry < MAX_RETRIES:
-                    time.sleep(RETRY_BACKOFF * (retry + 1))
-                    return self._graphql(query, variables, retry + 1)
-                else:
-                    logger.error("Max retries exceeded for rate limiting.")
-                    raise Exception("Rate limited and retries exhausted.")
-            response.raise_for_status()
-            data = response.json()
-            if "errors" in data:
-                logger.error(f"Poe.com GraphQL error: {data['errors']}")
-                raise Exception(f"Poe.com error: {data['errors']}")
-            return data.get("data")
-        except requests.RequestException as e:
-            logger.error(f"Network error contacting Poe.com: {e}")
-            if retry < MAX_RETRIES:
-                time.sleep(RETRY_BACKOFF * (retry + 1))
-                return self._graphql(query, variables, retry + 1)
-            raise
-
-    def test_connection(self) -> bool:
-        """Test if the API connection is working."""
-        try:
-            # Simple query to test connection
-            gql_query = """
-            query {
-                viewer {
-                    id
-                }
-            }
-            """
-            data = self._graphql(gql_query, {})
-            return data is not None and "viewer" in data
+            logger.info("🔄 Initializing Poe browser connection...")
+            
+            # Set up Chrome options
+            chrome_options = Options()
+            temp_dir = tempfile.mkdtemp()
+            chrome_options.add_argument(f"--user-data-dir={temp_dir}")
+            
+            if self.config.headless:
+                chrome_options.add_argument("--headless")
+            
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+            chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            chrome_options.add_experimental_option('useAutomationExtension', False)
+            
+            # Initialize driver
+            self.driver = webdriver.Chrome(
+                service=webdriver.chrome.service.Service(ChromeDriverManager().install()),
+                options=chrome_options
+            )
+            
+            # Remove automation detection
+            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            
+            # Navigate to Poe
+            logger.info("🌐 Opening Poe.com...")
+            self.driver.get("https://poe.com")
+            
+            # Set token cookie if provided
+            if self.config.token:
+                self.driver.add_cookie({
+                    'name': 'p-b',
+                    'value': self.config.token,
+                    'domain': '.poe.com'
+                })
+                self.driver.refresh()
+            
+            # Wait for page load
+            await asyncio.sleep(3)
+            
+            # Check if logged in
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "textarea, [contenteditable='true']"))
+                )
+                self.is_connected = True
+                logger.info("✅ Successfully connected to Poe!")
+                return True
+            except:
+                logger.warning("⚠️ Not logged in. Manual login required.")
+                return False
+                
         except Exception as e:
-            logger.error(f"Connection test failed: {e}")
+            logger.error(f"❌ Failed to connect to Poe: {e}")
             return False
-
-    def search(self, query: str, limit: int = 10, bot: Optional[str] = None, category: Optional[str] = None, date_range: Optional[str] = None) -> List[Dict]:
-        gql_query = """
-        query SearchMessages($query: String!, $limit: Int) {
-            messageSearch(query: $query, limit: $limit) {
-                id
-                message
-                conversationId
-                bot
-                createdAt
-                category
-            }
-        }
-        """
-        variables = {"query": query, "limit": limit}
-        logger.info(f"Searching Poe messages: query={query}, limit={limit}, bot={bot}, category={category}, date_range={date_range}")
-        data = self._graphql(gql_query, variables)
-        results = data.get("messageSearch", [])
-        logger.info(f"Found {len(results)} results.")
-        return results
-
-    def get_conversation(self, conversation_id: str) -> Dict:
-        gql_query = """
-        query GetConversation($id: ID!) {
-            conversation(id: $id) {
-                id
-                title
-                messages {
-                    id
-                    message
-                    author
-                    createdAt
-                }
-            }
-        }
-        """
-        variables = {"id": conversation_id}
-        logger.info(f"Fetching conversation: {conversation_id}")
-        data = self._graphql(gql_query, variables)
-        return data.get("conversation", {})
-
-    def get_conversation_history(self, days: int = 30, limit: int = 100) -> List[Dict]:
-        """Get conversation history for the specified number of days."""
-        gql_query = """
-        query GetConversationHistory($limit: Int) {
-            conversations(limit: $limit) {
-                id
-                title
-                createdAt
-                messageCount
-            }
-        }
-        """
-        variables = {"limit": limit}
-        logger.info(f"Fetching conversation history: days={days}, limit={limit}")
-        data = self._graphql(gql_query, variables)
-        conversations = data.get("conversations", [])
-        logger.info(f"Found {len(conversations)} conversations.")
-        return conversations
-
-    def export_conversations(self, output_file: str, format: str = "json"):
-        gql_query = """
-        query AllConversations {
-            conversations {
-                id
-                title
-                createdAt
-                messages {
-                    id
-                    message
-                    author
-                    createdAt
-                }
-            }
-        }
-        """
-        logger.info(f"Exporting all conversations to {output_file} in {format} format")
-        data = self._graphql(gql_query, {})
-        conversations = data.get("conversations", [])
-        import json, csv
-        if format == "json":
-            with open(output_file, "w", encoding="utf-8") as f:
-                json.dump(conversations, f, ensure_ascii=False, indent=2)
-        elif format == "csv":
-            with open(output_file, "w", encoding="utf-8", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow(["id", "title", "createdAt", "messageCount"])
-                for conv in conversations:
-                    writer.writerow([conv["id"], conv["title"], conv["createdAt"], len(conv.get("messages", []))])
-        else:
-            logger.error("Unsupported export format.")
-            raise ValueError("Unsupported format for export: use 'json' or 'csv'")
-        logger.info("Export complete.")
-
-    def get_user_info(self) -> Optional[Dict[str, Any]]:
-        """Get user information."""
+    
+    async def get_conversations(self, limit: int = 50) -> List[Conversation]:
+        """Fetch conversations from Poe"""
+        if not self.is_connected:
+            logger.error("❌ Not connected to Poe. Call connect() first.")
+            return []
+        
         try:
-            gql_query = """
-            query {
-                viewer {
-                    id
-                    displayName
-                    email
-                }
-            }
-            """
-            data = self._graphql(gql_query, {})
-            return data.get("viewer")
+            logger.info(f"📥 Fetching {limit} conversations...")
+            
+            # Navigate to chat history (adjust URL as needed)
+            self.driver.get("https://poe.com")
+            await asyncio.sleep(2)
+            
+            conversations = []
+            
+            # Look for conversation list elements
+            conversation_selectors = [
+                "[data-testid*='conversation']",
+                "[class*='conversation']",
+                "[class*='chat-item']",
+                "a[href*='/chat/']"
+            ]
+            
+            conversation_elements = []
+            for selector in conversation_selectors:
+                try:
+                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    if elements:
+                        conversation_elements = elements[:limit]
+                        break
+                except:
+                    continue
+            
+            if not conversation_elements:
+                logger.warning("⚠️ No conversation elements found. Manual navigation may be required.")
+                return []
+            
+            # Extract conversation data
+            for i, element in enumerate(conversation_elements):
+                try:
+                    # Extract basic info
+                    title = element.text.strip() or f"Conversation {i+1}"
+                    href = element.get_attribute('href') if element.tag_name == 'a' else ""
+                    conv_id = self._extract_conversation_id(href) or f"conv_{i+1}"
+                    
+                    # Create conversation object
+                    conversation = Conversation(
+                        id=conv_id,
+                        title=title,
+                        bot="Unknown",  # Will be updated when fetching messages
+                        messages=[],
+                        created_at=datetime.now() - timedelta(days=i),  # Placeholder
+                        updated_at=datetime.now() - timedelta(days=i)
+                    )
+                    
+                    conversations.append(conversation)
+                    
+                    # Rate limiting
+                    await asyncio.sleep(self.config.rate_limit_delay)
+                    
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to extract conversation {i}: {e}")
+                    continue
+            
+            logger.info(f"✅ Successfully fetched {len(conversations)} conversations")
+            return conversations
+            
         except Exception as e:
-            logger.error(f"Failed to get user info: {e}")
+            logger.error(f"❌ Failed to fetch conversations: {e}")
+            return []
+    
+    async def get_conversation_messages(self, conversation_id: str) -> List[Message]:
+        """Fetch messages for a specific conversation"""
+        if not self.is_connected:
+            return []
+        
+        try:
+            # Navigate to specific conversation
+            self.driver.get(f"https://poe.com/chat/{conversation_id}")
+            await asyncio.sleep(3)
+            
+            messages = []
+            
+            # Look for message elements
+            message_selectors = [
+                "[data-testid*='message']",
+                "[class*='message']",
+                ".prose",
+                "div[dir='auto']"
+            ]
+            
+            message_elements = []
+            for selector in message_selectors:
+                try:
+                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    if elements:
+                        message_elements = elements
+                        break
+                except:
+                    continue
+            
+            # Extract messages
+            for i, element in enumerate(message_elements):
+                try:
+                    content = element.text.strip()
+                    if content and len(content) > 5:  # Filter out empty/short elements
+                        
+                        # Determine role (user/assistant) based on element properties
+                        role = "assistant"  # Default assumption
+                        if "user" in element.get_attribute("class").lower():
+                            role = "user"
+                        
+                        message = Message(
+                            id=f"msg_{i}",
+                            role=role,
+                            content=content,
+                            timestamp=datetime.now() - timedelta(minutes=i*5),
+                            bot_name="Assistant"
+                        )
+                        
+                        messages.append(message)
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to extract message {i}: {e}")
+                    continue
+            
+            logger.info(f"✅ Extracted {len(messages)} messages from conversation {conversation_id}")
+            return messages
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to fetch messages for {conversation_id}: {e}")
+            return []
+    
+    def _extract_conversation_id(self, href: str) -> Optional[str]:
+        """Extract conversation ID from URL"""
+        if not href:
             return None
+        
+        # Extract from various URL patterns
+        patterns = [
+            r'/chat/([^/\?]+)',
+            r'chatId=([^&]+)',
+            r'conversation[_-]([^&]+)'
+        ]
+        
+        import re
+        for pattern in patterns:
+            match = re.search(pattern, href)
+            if match:
+                return match.group(1)
+        
+        return None
+    
+    async def search_conversations(self, query: str, filters: Optional[Dict] = None) -> List[Conversation]:
+        """Search conversations (placeholder - implement based on Poe's search functionality)"""
+        # For now, get all conversations and filter locally
+        all_conversations = await self.get_conversations(limit=100)
+        
+        # Simple text search
+        matching = []
+        for conv in all_conversations:
+            if query.lower() in conv.title.lower():
+                matching.append(conv)
+        
+        return matching
+    
+    def disconnect(self):
+        """Close browser connection"""
+        if self.driver:
+            self.driver.quit()
+            self.driver = None
+            self.is_connected = False
+            logger.info("🔌 Disconnected from Poe")
 
-    def get_recent_conversations(self, days: int = 7) -> List[Dict[str, Any]]:
-        """Get recent conversations (alias for get_conversation_history)."""
-        return self.get_conversation_history(days=days)
-
-# Example usage (for CLI or scripts)
-if __name__ == "__main__":
-    import sys
-    client = PoeAPIClient()
-    try:
-        if len(sys.argv) > 1 and sys.argv[1] == "search":
-            results = client.search(" ".join(sys.argv[2:]))
-            print(results)
-        elif len(sys.argv) > 1 and sys.argv[1] == "export":
-            client.export_conversations("poe_conversations.json", format="json")
-        elif len(sys.argv) > 1 and sys.argv[1] == "test":
-            if client.test_connection():
-                print("✅ Connection test passed")
-            else:
-                print("❌ Connection test failed")
-        else:
-            print("Usage: python client.py [search <query> | export | test]")
-    except Exception as ex:
-        logger.error(f"Operation failed: {ex}")
+# Factory function for easy instantiation
+def create_poe_client(token: str, headless: bool = False) -> PoeApiClient:
+    """Create a configured Poe API client"""
+    config = PoeApiConfig(

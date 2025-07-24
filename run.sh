@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 
+# Move loose dev/debug scripts to dev-tools/
+# (These are not part of the main app, but useful for development)
+#
+# debug_graphql.py, debug_graphql_focused.py, force_token_extraction.py, query_poe_api.py
+#
+# Move them to dev-tools/ for clarity and organization.
+#
+# (No code change here, just a project structure note for the user)
+
 # Run Poe Search GUI from project root
 set -e
 

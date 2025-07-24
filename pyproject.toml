@@ -1,19 +1,35 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "poe-search"
-dynamic = ["version"]
-description = "A tool for searching and organizing Poe.com conversations and data"
+version = "1.0.0"
+description = "A comprehensive tool for searching, organizing, and managing your Poe.com conversations and data"
 readme = "README.md"
-requires-python = ">=3.8"
-license = "MIT"
-keywords = ["poe", "search", "ai", "chat", "organization"]
-authors = [{ name = "Kevin", email = "your-email@example.com" }]
+license = {file = "LICENSE"}
+authors = [
+    {name = "Kevin", email = "kevin@poe-search.dev"},
+]
+maintainers = [
+    {name = "Kevin", email = "kevin@poe-search.dev"},
+]
+keywords = [
+    "poe",
+    "ai",
+    "conversation",
+    "search",
+    "chat",
+    "management",
+    "gui",
+    "claude",
+    "gpt",
+    "chatbot"
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
@@ -22,163 +38,346 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Chat",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing :: Indexing",
+    "Topic :: Utilities",
+    "Environment :: X11 Applications :: Qt",
 ]
+requires-python = ">=3.8"
 dependencies = [
-    "click>=8.0.0",
     "requests>=2.28.0",
-    "httpx>=0.24.0",
-    "rich>=13.0.0",
+    "click>=8.0.0",
     "pydantic>=2.0.0",
-    "sqlalchemy>=2.0.0",
-    "aiofiles>=23.0.0",
     "python-dotenv>=1.0.0",
-    "websocket-client>=1.6.0",
-    "beautifulsoup4>=4.12.0",
-    "tabulate>=0.9.0",
-    "poe-api-wrapper>=1.0.0",
-    "fastapi-poe>=0.0.24",
-    "browser-cookie3>=0.19.1",
-    "psutil>=5.9.0",
+    "rich>=13.0.0",
+    "aiohttp>=3.8.0",
+    "aiofiles>=23.0.0",
+    "sqlite-fts4>=1.0.3",
+    "python-dateutil>=2.8.0",
+    "typing-extensions>=4.0.0",
+    "pathlib>=1.0.1; python_version<'3.4'",
 ]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/hkevin01/poe-search"
+Repository = "https://github.com/hkevin01/poe-search"
+Documentation = "https://github.com/hkevin01/poe-search/docs"
+"Bug Tracker" = "https://github.com/hkevin01/poe-search/issues"
+"Feature Requests" = "https://github.com/hkevin01/poe-search/issues"
+Discussions = "https://github.com/hkevin01/poe-search/discussions"
 
 [project.optional-dependencies]
+# GUI dependencies
+gui = [
+    "PyQt6>=6.4.0",
+    "selenium>=4.15.0",
+    "webdriver-manager>=4.0.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=4.9.0",
+    "Pillow>=10.0.0",
+    "qasync>=0.24.0",
+]
+
+# Development dependencies
 dev = [
     "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+    "pytest-asyncio>=0.21.0",
     "pytest-qt>=4.2.0",
     "black>=23.0.0",
     "isort>=5.12.0",
     "flake8>=6.0.0",
     "mypy>=1.5.0",
-    "pre-commit>=3.0.0",
+    "bandit>=1.7.0",
+    "pre-commit>=3.3.0",
+    "tox>=4.0.0",
+    "coverage>=7.0.0",
+    "types-requests>=2.31.0",
+    "types-python-dateutil>=2.8.0",
 ]
+
+# Documentation dependencies
 docs = [
     "mkdocs>=1.5.0",
     "mkdocs-material>=9.0.0",
     "mkdocstrings[python]>=0.22.0",
+    "mkdocs-click>=0.8.0",
+    "mkdocs-gen-files>=0.5.0",
+    "mkdocs-literate-nav>=0.6.0",
+    "mkdocs-section-index>=0.3.0",
 ]
-gui = ["PyQt6>=6.5.0", "pyqtdarktheme>=0.1.7"]
 
-[project.urls]
-Documentation = "https://github.com/kevin/poe-search#readme"
-Issues = "https://github.com/kevin/poe-search/issues"
-Source = "https://github.com/kevin/poe-search"
+# Testing dependencies for GUI
+test-gui = [
+    "pytest-qt>=4.2.0",
+    "pytest-xvfb>=3.0.0",
+    "xvfbwrapper>=0.2.9",
+]
+
+# Performance optimization dependencies
+performance = [
+    "orjson>=3.9.0",
+    "uvloop>=0.17.0; sys_platform != 'win32'",
+    "rapidfuzz>=3.0.0",
+]
+
+# All optional dependencies combined
+all = [
+    "poe-search[gui,dev,docs,test-gui,performance]"
+]
 
 [project.scripts]
-poe-search = "poe_search.cli:main"
-poe-search-gui = "poe_search.gui:main"
+# Main CLI entry points
+poe-search = "poe_search.cli.main:main"
+poe-search-cli = "poe_search.cli.main:main"
 
-[tool.hatch.version]
-path = "src/poe_search/__about__.py"
+# GUI entry points
+poe-search-gui = "poe_search.gui.__main__:main"
+poe-search-app = "poe_search.gui.__main__:main"
 
-[tool.hatch.envs.default]
-dependencies = ["coverage[toml]", "pytest", "pytest-cov"]
-[tool.hatch.envs.default.scripts]
-test = "pytest {args:tests}"
-test-cov = "coverage run -m pytest {args:tests}"
-cov-report = ["- coverage combine", "coverage report"]
-cov = ["test-cov", "cov-report"]
+# Utility scripts
+poe-search-sync = "poe_search.cli.commands.sync:main"
+poe-search-export = "poe_search.cli.commands.export:main"
+poe-search-config = "poe_search.cli.commands.config:main"
 
-[[tool.hatch.envs.all.matrix]]
-python = ["3.8", "3.9", "3.10", "3.11", "3.12"]
+[project.entry-points."console_scripts"]
+poe-search = "poe_search.cli.main:main"
+poe-search-gui = "poe_search.gui.__main__:main"
 
-[tool.hatch.envs.lint]
-detached = true
-dependencies = ["black>=23.1.0", "mypy>=1.0.0", "ruff>=0.0.243"]
-[tool.hatch.envs.lint.scripts]
-typing = "mypy --install-types --non-interactive {args:src/poe_search tests}"
-style = ["ruff {args:.}", "black --check --diff {args:.}"]
-fmt = ["black {args:.}", "ruff --fix {args:.}", "style"]
-all = ["style", "typing"]
+[tool.setuptools]
+package-dir = {"" = "src"}
 
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["poe_search*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+"poe_search" = [
+    "*.yaml",
+    "*.yml",
+    "*.json",
+    "*.txt",
+    "*.md",
+]
+"poe_search.gui" = [
+    "assets/*",
+    "icons/*",
+    "styles/*",
+    "templates/*",
+]
+"poe_search.config" = [
+    "*.yaml",
+    "*.yml",
+    "templates/*",
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "poe_search.__version__"}
+
+# Black configuration
 [tool.black]
-target-version = ["py38"]
-line-length = 200
-skip-string-normalization = true
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+  | migrations
+)/
+'''
 
-[tool.ruff]
-target-version = "py38"
-line-length = 200
-select = [
-    "A",
-    "ARG",
-    "B",
-    "C",
-    "DTZ",
-    "E",
-    "EM",
-    "F",
-    "FBT",
-    "I",
-    "ICN",
-    "ISC",
-    "N",
-    "PLC",
-    "PLE",
-    "PLR",
-    "PLW",
-    "Q",
-    "RUF",
-    "S",
-    "T",
-    "TID",
-    "UP",
-    "W",
-    "YTT",
+# isort configuration
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["poe_search"]
+known_third_party = [
+    "PyQt6",
+    "selenium",
+    "requests",
+    "click",
+    "pydantic",
+    "rich",
+    "aiohttp",
+    "pytest",
 ]
-ignore = [
-    # Allow non-abstract empty methods in abstract base classes
-    "B027",
-    # Allow boolean positional values in function calls, like `dict.get(... True)`
-    "FBT003",
-    # Ignore checks for possible passwords
-    "S105",
-    "S106",
-    "S107",
-    # Ignore complexity
-    "C901",
-    "PLR0911",
-    "PLR0912",
-    "PLR0913",
-    "PLR0915",
-    # Ignore line length issues
-    "E501",
-    "W505",
-    # Ignore unused imports
-    "F401",
-    "F841",
+sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = [
+    "selenium.*",
+    "webdriver_manager.*",
+    "PyQt6.*",
+    "qasync.*",
+    "sqlite_fts4.*",
 ]
-unfixable = [
-    # Don't touch unused imports
-    "F401",
+ignore_missing_imports = true
+
+# Pytest configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=src/poe_search",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+]
+testpaths = ["tests"]
+python_files = [
+    "test_*.py",
+    "*_test.py",
+]
+python_classes = [
+    "Test*",
+]
+python_functions = [
+    "test_*",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "gui: marks tests as GUI tests",
+    "api: marks tests as API tests",
+    "unit: marks tests as unit tests",
+    "selenium: marks tests that use selenium",
+]
+filterwarnings = [
+    "error",
+    "ignore::UserWarning",
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
 ]
 
-[tool.ruff.isort]
-known-first-party = ["poe_search"]
-
-[tool.ruff.flake8-tidy-imports]
-ban-relative-imports = "all"
-
-[tool.ruff.per-file-ignores]
-# Tests can use magic values, assertions, and relative imports
-"tests/**/*" = ["PLR2004", "S101", "TID252", "E501", "W505", "F401", "F841"]
-
+# Coverage configuration
 [tool.coverage.run]
-source_pkgs = ["poe_search", "tests"]
+source = ["src/poe_search"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__main__.py",
+    "*/conftest.py",
+]
 branch = true
-parallel = true
-omit = ["src/poe_search/__about__.py"]
-
-[tool.coverage.paths]
-poe_search = ["src/poe_search", "*/poe-search/src/poe_search"]
-tests = ["tests", "*/poe-search/tests"]
 
 [tool.coverage.report]
-exclude_lines = ["no cov", "if __name__ == .__main__.:", "if TYPE_CHECKING:"]
-
-[tool.pylint.'MESSAGES CONTROL']
-disable = [
-    "C0301", # line-too-long
-    "E0401", # import-error
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\bProtocol\):",
+    "@(abc\.)?abstractmethod",
 ]
+show_missing = true
+skip_covered = false
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+# Bandit security linting
+[tool.bandit]
+exclude_dirs = ["tests", "test_*.py", "*_test.py"]
+skips = ["B101", "B601"]
+
+# Flake8 configuration
+[tool.flake8]
+max-line-length = 88
+extend-ignore = [
+    "E203",  # whitespace before ':'
+    "E501",  # line too long (handled by black)
+    "W503",  # line break before binary operator
+]
+exclude = [
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    ".eggs",
+    "*.egg-info",
+    ".venv",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+]
+per-file-ignores = [
+    "__init__.py:F401",
+    "tests/*:S101",
+]
+
+# Tox configuration for testing multiple Python versions
+[tool.tox]
+legacy_tox_ini = """
+[tox]
+isolated_build = true
+envlist = py38,py39,py310,py311,py312,lint,type-check
+
+[testenv]
+deps = 
+    pytest>=7.0.0
+    pytest-cov>=4.0.0
+    pytest-mock>=3.10.0
+    pytest-asyncio>=0.21.0
+commands = pytest {posargs}
+
+[testenv:lint]
+deps = 
+    black>=23.0.0
+    isort>=5.12.0
+    flake8>=6.0.0
+commands = 
+    black --check src tests
+    isort --check-only src tests
+    flake8 src tests
+
+[testenv:type-check]
+deps = 
+    mypy>=1.5.0
+    types-requests>=2.31.0
+commands = mypy src
+
+[testenv:gui]
+deps = 
+    {[testenv]deps}
+    PyQt6>=6.4.0
+    pytest-qt>=4.2.0
+commands = pytest tests/gui {posargs}
+"""

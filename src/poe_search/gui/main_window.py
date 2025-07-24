@@ -460,11 +460,10 @@ class MainWindow(QMainWindow):
                 # Extract formkey from the working API client's tokens
                 working_formkey = None
                 try:
-                    # Try to get formkey from the working client
-                    if (hasattr(self.api_client, 'client') and 
-                        hasattr(self.api_client.client, 'session') and
-                        hasattr(self.api_client.client.session, 'formkey')):
-                        working_formkey = self.api_client.client.session.formkey
+                    # Try to get formkey from the working client's session directly
+                    if (hasattr(self.api_client, 'session') and
+                        hasattr(self.api_client.session, 'formkey')):
+                        working_formkey = self.api_client.session.formkey
                         logger.info(f"Got formkey from client session: {working_formkey[:10]}...")
                     elif tokens and tokens.get('formkey'):
                         working_formkey = tokens['formkey']
@@ -1088,12 +1087,15 @@ class MainWindow(QMainWindow):
             )
             self.progress_bar.setVisible(False)
     
-    def update_status(self):
+    def update_status(self, message: str = None):
         """Update status information."""
+        if message:
+            self.status_label.setText(message)
+        
         if self.api_client:
             try:
                 # Update database status
-                conversations = self.api_client.database.get_conversations(limit=1)
+                conversations = self.database.get_conversations(limit=1)
                 self.db_label.setText(f"DB: Ready ({len(conversations)} conversations)")
             except Exception:
                 self.db_label.setText("DB: Error")
@@ -1607,10 +1609,9 @@ class MainWindow(QMainWindow):
             try:
                 # Try to get formkey from the working client first
                 if (hasattr(self, 'api_client') and 
-                    hasattr(self.api_client, 'client') and 
-                    hasattr(self.api_client.client, 'session') and
-                    hasattr(self.api_client.client.session, 'formkey')):
-                    working_formkey = self.api_client.client.session.formkey
+                    hasattr(self.api_client, 'session') and
+                    hasattr(self.api_client.session, 'formkey')):
+                    working_formkey = self.api_client.session.formkey
                     self.logger.info(f"Got formkey from client: {working_formkey[:10]}...")
                 
                 # Try to get p-b cookie from tokens

@@ -4,8 +4,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from poe_search.api.client import PoeAPIClient
-from poe_search.api.official_client import OfficialPoeAPIClient
+from poe_search.api.client import PoeAPIClient  # This is the main API client
 from poe_search.export.exporter import ConversationExporter
 from poe_search.search.engine import SearchEngine
 from poe_search.storage.database import Database
@@ -43,39 +42,16 @@ class PoeSearchClient:
         self._exporter = None
     
     @property
-    def api_client(self) -> Union[PoeAPIClient, OfficialPoeAPIClient]:
-        """Get the appropriate Poe API client based on configuration."""
+    def api_client(self) -> PoeAPIClient:
+        """Get the Poe API client."""
         if self._api_client is None:
-            api_type = self.config.get_api_type() if self.config else "wrapper"
-            
-            if api_type == "official":
-                # Use official API client
-                if self.config and self.config.has_valid_api_key():
-                    self._api_client = OfficialPoeAPIClient(
-                        api_key=self.config.poe_api_key, 
-                        config=self.config
-                    )
-                    logger.info("Using official Poe API client")
-                else:
-                    logger.warning("Official API key not available, falling back to wrapper")
-                    api_type = "wrapper"
-            
-            if api_type == "wrapper":
-                # Use wrapper client
-                if self.config and hasattr(self.config, 'get_poe_tokens'):
-                    tokens = self.config.get_poe_tokens()
-                    self._api_client = PoeAPIClient(
-                        token=tokens, config=self.config
-                    )
-                    logger.info("Using wrapper Poe API client")
-                else:
-                    # Fall back to legacy format
-                    token = self.token or ""
-                    self._api_client = PoeAPIClient(
-                        token=token, config=self.config
-                    )
-                    logger.info("Using wrapper Poe API client (legacy token)")
-        
+            if self.config and hasattr(self.config, 'get_poe_tokens'):
+                tokens = self.config.get_poe_tokens()
+                p_b_token = tokens.get('p-b') if isinstance(tokens, dict) else tokens
+                self._api_client = PoeAPIClient(token=p_b_token)
+            else:
+                token = self.token or ""
+                self._api_client = PoeAPIClient(token=token)
         return self._api_client
     
     @property
@@ -141,16 +117,13 @@ class PoeSearchClient:
         try:
             client = self.api_client
             
-            if isinstance(client, OfficialPoeAPIClient):
-                return client.test_connection()
-            else:
-                # For wrapper client, try to get user info
-                user_info = client.get_user_info()
-                return {
-                    'success': bool(user_info),
-                    'api_type': 'wrapper',
-                    'user_info': user_info
-                }
+            # For wrapper client, try to get user info
+            user_info = client.get_user_info()
+            return {
+                'success': bool(user_info),
+                'api_type': 'wrapper',
+                'user_info': user_info
+            }
                 
         except Exception as e:
             logger.error(f"API connection test failed: {e}")
@@ -185,7 +158,11 @@ class PoeSearchClient:
             **filters,
         )
     
-    def get_conversation_history(self, days: int = 7, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_conversation_history(
+        self,
+        days: int = 7,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
         """Get conversation history.
         
         Args:
@@ -198,20 +175,19 @@ class PoeSearchClient:
         try:
             client = self.api_client
             
-            if isinstance(client, OfficialPoeAPIClient):
-                # Official API doesn't support conversation history
-                logger.warning("Official API doesn't support conversation history")
-                return []
-            else:
-                # Use wrapper client for conversation history
-                conversations = client.get_recent_conversations(days=days)
-                return conversations[:limit]
-                
+            # Use wrapper client for conversation history
+            conversations = client.get_recent_conversations(days=days)
+            return conversations[:limit]
+
         except Exception as e:
-            logger.error(f"Failed to get conversation history: {e}")
+            logger.error(
+                f"Failed to get conversation history: {e}"
+            )
             return []
     
-    def get_conversation(self, conversation_id: str) -> Optional[Dict[str, Any]]:
+    def get_conversation(
+        self, conversation_id: str
+    ) -> Optional[Dict[str, Any]]:
         """Get a specific conversation.
         
         Args:
@@ -222,20 +198,25 @@ class PoeSearchClient:
         """
         try:
             client = self.api_client
-            
-            if isinstance(client, OfficialPoeAPIClient):
-                # Official API doesn't support conversation retrieval
-                logger.warning("Official API doesn't support conversation retrieval")
-                return None
-            else:
-                # Use wrapper client for conversation retrieval
-                return client.get_conversation(conversation_id)
-                
+
+            # Use wrapper client for conversation retrieval
+            return client.get_conversation(
+                conversation_id
+            )
+
         except Exception as e:
-            logger.error(f"Failed to get conversation {conversation_id}: {e}")
+            logger.error(
+                "Failed to get conversation %s: %s",
+                conversation_id,
+                e,
+            )
             return None
     
-    def send_message(self, message: str, bot_name: str = "GPT-3.5-Turbo") -> Optional[str]:
+    def send_message(
+        self,
+        message: str,
+        bot_name: str = "GPT-3.5-Turbo"
+    ) -> Optional[str]:
         """Send a message to a bot (official API only).
         
         Args:
@@ -247,15 +228,17 @@ class PoeSearchClient:
         """
         try:
             client = self.api_client
-            
-            if isinstance(client, OfficialPoeAPIClient):
-                return client.get_bot_response(message, bot_name)
-            else:
-                logger.warning("Message sending only supported with official API")
-                return None
-                
+
+            # Message sending only supported with official API
+            logger.warning(
+                "Message sending only supported with official API"
+            )
+            return None
+
         except Exception as e:
-            logger.error(f"Failed to send message: {e}")
+            logger.error(
+                f"Failed to send message: {e}"
+            )
             return None
     
     def sync_conversations(self, days: int = 7) -> int:
@@ -273,10 +256,14 @@ class PoeSearchClient:
             synced_count = 0
             for conv in conversations:
                 try:
-                    self.database.store_conversation(conv)
+                    self.database.save_conversation(conv)
                     synced_count += 1
                 except Exception as e:
-                    logger.warning(f"Failed to store conversation {conv.get('id', 'unknown')}: {e}")
+                    logger.warning(
+                        "Failed to store conversation %s: %s",
+                        conv.get('id', 'unknown'),
+                        e,
+                    )
                     continue
             
             logger.info(f"Synced {synced_count} conversations")
@@ -355,7 +342,11 @@ class PoeSearchClient:
             output_path=output_path,
             format=format,
         )
-        logger.info(f"Exported {len(conversations)} conversations to {output_path}")
+        logger.info(
+            "Exported %d conversations to %s",
+            len(conversations),
+            output_path,
+        )
     
     def get_bots(self) -> List[Dict[str, Any]]:
         """Get list of bots from database.
@@ -375,8 +366,3 @@ class PoeSearchClient:
             Analytics data
         """
         return self.database.get_analytics(period=period)
-
-        # Load tokens from config/poe_tokens.json if not already set
-        if self.config and hasattr(self.config, 'poe_tokens') and not self.config.poe_tokens.get('p-b'):
-            from poe_search.utils.config import load_poe_tokens_from_file
-            self.config.poe_tokens = load_poe_tokens_from_file()

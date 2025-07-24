@@ -154,22 +154,11 @@ class TokenManager:
             from poe_search.api.client import PoeAPIClient
             
             client = PoeAPIClient(token=tokens)
-            if client.client is None:
+            if client is None:
                 return False
             
-            # Try to get bots
-            bots = client.get_bots()
-            if isinstance(bots, dict) and len(bots) > 0:
-                # Check if we got real bots (not mock data)
-                real_bot_indicators = ['claude', 'gpt', 'gemini', 'sage']
-                has_real_bots = any(
-                    any(indicator in bot_id.lower()
-                        for indicator in real_bot_indicators)
-                    for bot_id in bots.keys()
-                )
-                return has_real_bots
-            
-            return False
+            # Try to test connection
+            return client.test_connection()
             
         except Exception as e:
             logger.error(f"Error testing tokens: {e}")

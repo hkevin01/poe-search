@@ -19,12 +19,26 @@ log_and_echo() {
 if [ -d ".venv" ]; then
     source .venv/bin/activate
     log_and_echo "Activated virtual environment."
+    # Ensure required packages are installed
+    pip install --quiet fastapi-poe browser-cookie3 poe-api-wrapper
+    log_and_echo "Ensured required Python packages are installed."
 elif [ -d "venv" ]; then
     source venv/bin/activate
     log_and_echo "Activated virtual environment (legacy)."
+    pip install --quiet fastapi-poe browser-cookie3 poe-api-wrapper
+    log_and_echo "Ensured required Python packages are installed."
 else
     log_and_echo "ERROR: No virtual environment found. Please create one with 'python -m venv .venv' and install dependencies."
     exit 1
+fi
+
+# Terminate any prior running instances of Poe Search GUI
+log_and_echo "Checking for existing Poe Search GUI processes..."
+RUNNING_PIDS=$(pgrep -f "python -m poe_search.gui")
+if [ -n "$RUNNING_PIDS" ]; then
+    log_and_echo "Terminating existing Poe Search GUI processes: $RUNNING_PIDS"
+    kill $RUNNING_PIDS || true
+    sleep 1
 fi
 
 # Log startup information
@@ -33,9 +47,23 @@ log_and_echo "Starting Poe Search GUI..."
 log_and_echo "All output will be logged to: $LOG_FILE"
 echo "" >> "$LOG_FILE"
 
-# Run the GUI with all output redirected to both terminal and log file
-PYTHONPATH="$PWD/src:$PYTHONPATH" python -m poe_search.gui "$@" 2>&1 | tee -a "$LOG_FILE"
+# Run the GUI in the background, redirecting output to both terminal and log file
+PYTHONPATH="$PWD/src:$PYTHONPATH" python -m poe_search.gui "$@" 2>&1 | tee -a "$LOG_FILE" &
+GUI_PID=$!
 
-# Log shutdown
-echo "" >> "$LOG_FILE"
-echo "=== GUI Session Ended - $(date) ===" >> "$LOG_FILE" 
+# Trap exit and interrupt signals to ensure cleanup
+cleanup() {
+    log_and_echo "Cleaning up any remaining Poe Search GUI processes..."
+    RUNNING_PIDS=$(pgrep -f "python -m poe_search.gui")
+    if [ -n "$RUNNING_PIDS" ]; then
+        log_and_echo "Killing remaining Poe Search GUI processes: $RUNNING_PIDS"
+        kill $RUNNING_PIDS || true
+        sleep 1
+    fi
+    echo "" >> "$LOG_FILE"
+    echo "=== GUI Session Ended - $(date) ===" >> "$LOG_FILE"
+}
+trap cleanup EXIT INT TERM
+
+# Wait for the GUI process to finish
+wait $GUI_PID

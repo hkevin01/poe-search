@@ -1,0 +1,7 @@
+fastapi-poe
+browser-cookie3
+poe-api-wrapper
+requests
+python-dotenv
+PyQt6
+poe-api

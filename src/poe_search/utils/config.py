@@ -410,19 +410,33 @@ def load_poe_tokens_from_file(
             if not success:
                 logger.error("Token refresh failed")
                 return {}
-            
-        # Load tokens (will check freshness)
-        tokens = manager.load_tokens()
-        if tokens:
-            # Check if fresh enough
-            if manager.are_tokens_fresh(max_age_hours):
-                return tokens
-            else:
-                logger.warning(f"Tokens are older than {max_age_hours} hours")
-                return {}
         else:
-            logger.warning("No tokens found")
-            return {}
+            # Try to load existing tokens first
+            tokens = manager.load_tokens()
+            if tokens:
+                # Check if fresh enough
+                if manager.are_tokens_fresh(max_age_hours):
+                    # Test if they work
+                    if manager.test_tokens(tokens):
+                        logger.info("Using existing valid tokens")
+                        return tokens
+                    else:
+                        logger.warning("Existing tokens are not working")
+                else:
+                    logger.warning(f"Tokens are older than {max_age_hours} hours")
+            else:
+                logger.warning("No tokens found")
+            
+            # Need to refresh tokens interactively
+            print("🔄 Token refresh required...")
+            success = manager.interactive_refresh()
+            if not success:
+                logger.error("Token refresh failed")
+                return {}
+            
+        # Load the newly refreshed tokens
+        tokens = manager.load_tokens()
+        return tokens or {}
             
     except Exception as e:
         logger.error(f"Error loading tokens: {e}")

@@ -158,6 +158,7 @@ temp/
 config/*
 # …but do track your example-templates
 !config/*.example.json
+!config/*.example.yaml
 
 # Keep real-secret files out
 *.pem
@@ -185,3 +186,9 @@ dev-tools/testing/test_results_*.json
 dev-tools/debug/*.png
 dev-tools/debug/temp_*
 dev-tools/utilities/temp_*
+
+# Ignore data snapshots and exports
+*.csv
+*conversations_*.json
+# Ignore all files in data/
+data/

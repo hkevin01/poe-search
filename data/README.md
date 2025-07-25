@@ -24,3 +24,6 @@ This directory contains runtime data files for the Poe Search application.
 
 Old backup files can be safely deleted, but keep recent ones for recovery purposes.
 Database files should only be deleted if you want to start fresh (this will lose all synced conversations).
+
+# This folder contains exported conversation snapshots and large data files.
+# These files are git-ignored by default. Move any large exports here.

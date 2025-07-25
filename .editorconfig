@@ -1,4 +1,6 @@
 # EditorConfig is awesome: https://EditorConfig.org
+# Keep only one .editorconfig at the repo root.
+# Remove duplicates from subfolders.
 
 # top-most EditorConfig file
 root = true
@@ -172,4 +174,4 @@ indent_size = 2
 
 [PROJECT_GOALS.md]
 indent_style = space
-indent_size = 2 
+indent_size = 2

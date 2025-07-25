@@ -1,9 +1,13 @@
+![build](https://github.com/hkevin01/poe-search/actions/workflows/ci.yml/badge.svg)
+![pypi](https://img.shields.io/pypi/v/poe-search)
+![license](https://img.shields.io/badge/license-MIT-blue)
+
 # Poe Search 🔍
 
 > **A comprehensive tool for searching, organizing, and managing your Poe.com conversations with modern GUI and CLI interfaces**
 
-[![CI](https://github.com/kevin/poe-search/workflows/CI/badge.svg)](https://github.com/kevin/poe-search/actions)
-[![Security](https://github.com/kevin/poe-search/workflows/Security%20Scan/badge.svg)](https://github.com/kevin/poe-search/actions)
+[![CI](https://github.com/hkevin01/poe-search/actions/workflows/ci.yml/badge.svg)](https://github.com/hkevin01/poe-search/actions)
+[![Security](https://github.com/hkevin01/poe-search/workflows/Security%20Scan/badge.svg)](https://github.com/hkevin01/poe-search/actions)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
@@ -72,7 +76,7 @@ Poe Search transforms your Poe.com conversation history into a searchable, organ
 
 ### 2️⃣ **Install & Run**
 ```bash
-git clone https://github.com/kevin/poe-search.git
+git clone https://github.com/hkevin01/poe-search.git
 cd poe-search
 pip install -e ".[gui]"      # Install with GUI support
 poe-search-gui               # Launch the application
@@ -90,14 +94,14 @@ poe-search-gui               # Launch the application
 
 ### 🎯 **Quick Install (Recommended)**
 ```bash
-git clone https://github.com/kevin/poe-search.git
+git clone https://github.com/hkevin01/poe-search.git
 cd poe-search
 pip install -e ".[gui]"      # Includes GUI and all dependencies
 ```
 
 ### 🔧 **Development Setup**
 ```bash
-git clone https://github.com/kevin/poe-search.git
+git clone https://github.com/hkevin01/poe-search.git
 cd poe-search
 pip install -e ".[dev,gui]"  # Includes development tools
 pre-commit install           # Set up git hooks
@@ -326,7 +330,7 @@ poe-search/                   # 🏠 Project root
 
 ### 🚀 **Quick Setup**
 ```bash
-git clone https://github.com/kevin/poe-search.git
+git clone https://github.com/hkevin01/poe-search.git
 cd poe-search
 make setup                   # Complete development environment
 ```

@@ -1,3 +1,7 @@
+# Pre-commit config for code quality and formatting
+# Only one .pre-commit-config.yaml should exist at the repo root.
+# Remove duplicates from subfolders.
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0

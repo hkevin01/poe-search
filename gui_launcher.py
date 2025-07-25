@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Enhanced GUI Launcher for Poe Search - Fixed Layout Version
+Enhanced GUI Launcher for Poe Search - Fixed Layout Version with Categories
 Fixed overlapping issues with proper layout management
 Author: Kevin Hao
-Version: 1.2.0
+Version: 1.3.0
 License: MIT
 """
 
@@ -128,52 +128,15 @@ class ConversationSyncThread:
                         self.error.emit("Authentication failed. Please check your tokens.")
                         return
                     
+                    # Get conversations with categories
                     conversations = client.get_conversations(
                         limit=self.limit,
                         progress_callback=progress_callback
                     )
                     
-                    detailed_conversations = []
-                    total = len(conversations)
-                    
-                    for i, conv_info in enumerate(conversations):
-                        try:
-                            progress_callback(f"Loading messages {i+1}/{total}...", 80 + (i / total) * 15)
-                            
-                            messages = client.get_conversation_messages(
-                                conv_info['id'],
-                                progress_callback
-                            )
-                            
-                            conversation = {
-                                'id': conv_info['id'],
-                                'title': conv_info['title'],
-                                'bot': conv_info.get('bot', 'Assistant'),
-                                'url': conv_info['url'],
-                                'messages': messages,
-                                'created_at': datetime.now() - timedelta(days=i),
-                                'extracted_at': conv_info.get('extracted_at'),
-                                'method': conv_info.get('method', 'browser_client')
-                            }
-                            
-                            detailed_conversations.append(conversation)
-                            
-                        except Exception as e:
-                            logging.warning(f"Failed to get messages for conversation {conv_info['id']}: {e}")
-                            conversation = {
-                                'id': conv_info['id'],
-                                'title': conv_info['title'],
-                                'bot': conv_info.get('bot', 'Assistant'),
-                                'url': conv_info['url'],
-                                'messages': [],
-                                'created_at': datetime.now() - timedelta(days=i),
-                                'extracted_at': conv_info.get('extracted_at'),
-                                'method': conv_info.get('method', 'browser_client')
-                            }
-                            detailed_conversations.append(conversation)
-                    
+                    # Return conversations directly (they now include categories)
+                    self.finished.emit(conversations)
                     client.close()
-                    self.finished.emit(detailed_conversations)
                     
                 except Exception as e:
                     self.error.emit(str(e))
@@ -191,9 +154,9 @@ class FixedLayoutMainWindow:
             QListWidget, QListWidgetItem, QTextEdit, QLineEdit, QPushButton,
             QLabel, QProgressBar, QMessageBox, QStatusBar, QMenuBar, QTabWidget,
             QGroupBox, QFormLayout, QComboBox, QCheckBox, QSpinBox, QTextBrowser,
-            QFileDialog, QScrollArea, QFrame, QApplication, QSizePolicy
+            QFileDialog, QScrollArea, QFrame, QApplication, QSizePolicy, QCompleter
         )
-        from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSettings, QTimer, QSize
+        from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSettings, QTimer, QSize, QStringListModel
         from PyQt6.QtGui import QFont, QIcon, QAction, QPixmap
         
         # Store PyQt6 classes
@@ -223,6 +186,8 @@ class FixedLayoutMainWindow:
         self.QFrame = QFrame
         self.QApplication = QApplication
         self.QSizePolicy = QSizePolicy
+        self.QCompleter = QCompleter
+        self.QStringListModel = QStringListModel
         self.Qt = Qt
         self.QSettings = QSettings
         self.QSize = QSize
@@ -237,7 +202,7 @@ class FixedLayoutMainWindow:
     def create_window(self):
         """Create the main window with proper fixed layout."""
         self.window = self.QMainWindow()
-        self.window.setWindowTitle("🔍 Poe Search - Enhanced AI Conversation Manager v1.2")
+        self.window.setWindowTitle("🔍 Poe Search - Enhanced AI Conversation Manager v1.3")
         self.window.setGeometry(100, 100, 1600, 1000)
         self.window.setMinimumSize(1400, 900)
         
@@ -321,7 +286,7 @@ class FixedLayoutMainWindow:
         """)
         title_layout.addWidget(title_label)
         
-        subtitle_label = self.QLabel("Enhanced AI Conversation Manager v1.2")
+        subtitle_label = self.QLabel("Enhanced AI Conversation Manager v1.3")
         subtitle_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.9);
@@ -431,10 +396,9 @@ class FixedLayoutMainWindow:
         source_layout = self.QHBoxLayout()
         source_layout.addWidget(self.QLabel("Token Source:"))
         
-        self.token_source_combo = self.QComboBox()
+        self.token_source_combo = self.create_modern_combobox()
         self.token_source_combo.addItem("📁 Use Config File")
         self.token_source_combo.addItem("✏️ Manual Entry")
-        self.token_source_combo.setFixedHeight(30)
         self.token_source_combo.currentTextChanged.connect(self.on_token_source_changed)
         source_layout.addWidget(self.token_source_combo)
         source_layout.addStretch()
@@ -516,6 +480,99 @@ class FixedLayoutMainWindow:
         
         return toolbar_group
     
+    def create_modern_combobox(self):
+        """Create a modern, user-friendly combo box with latest PyQt6 standards."""
+        combo = self.QComboBox()
+        combo.setFixedHeight(30)
+        combo.setMinimumWidth(150)
+        
+        # Modern styling for combo boxes
+        combo.setStyleSheet("""
+            QComboBox {
+                background-color: #3c3c3c;
+                color: #ffffff;
+                border: 2px solid #555555;
+                border-radius: 6px;
+                padding: 4px 8px;
+                font-size: 12px;
+                font-weight: 500;
+                min-width: 120px;
+            }
+            
+            QComboBox:hover {
+                border-color: #0078d4;
+                background-color: #404040;
+            }
+            
+            QComboBox:focus {
+                border-color: #0078d4;
+                background-color: #404040;
+                outline: none;
+            }
+            
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 25px;
+                border-left-width: 1px;
+                border-left-color: #555555;
+                border-left-style: solid;
+                border-top-right-radius: 6px;
+                border-bottom-right-radius: 6px;
+                background-color: #0078d4;
+            }
+            
+            QComboBox::drop-down:hover {
+                background-color: #106ebe;
+            }
+            
+            QComboBox::down-arrow {
+                image: none;
+                border: none;
+                width: 0;
+                height: 0;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 8px solid white;
+                margin: 0 auto;
+            }
+            
+            QComboBox QAbstractItemView {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                border: 1px solid #0078d4;
+                border-radius: 4px;
+                selection-background-color: #0078d4;
+                selection-color: white;
+                outline: none;
+                font-size: 12px;
+                padding: 4px;
+            }
+            
+            QComboBox QAbstractItemView::item {
+                padding: 8px 12px;
+                border: none;
+                border-bottom: 1px solid #404040;
+                min-height: 20px;
+            }
+            
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #404040;
+                color: white;
+            }
+            
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #0078d4;
+                color: white;
+            }
+        """)
+        
+        # Enable autocomplete
+        combo.setEditable(False)
+        combo.setInsertPolicy(self.QComboBox.InsertPolicy.NoInsert)
+        
+        return combo
+    
     def create_progress_section(self):
         """Create progress section with fixed height."""
         progress_widget = self.QWidget()
@@ -540,7 +597,7 @@ class FixedLayoutMainWindow:
         return progress_widget
     
     def create_conversation_list_panel(self):
-        """Create conversation list panel with proper sizing."""
+        """Create conversation list panel with proper sizing and category support."""
         panel_widget = self.QWidget()
         
         panel_layout = self.QVBoxLayout(panel_widget)
@@ -549,7 +606,7 @@ class FixedLayoutMainWindow:
         
         # Search section (fixed height)
         search_group = self.QGroupBox("🔍 Search & Filter")
-        search_group.setFixedHeight(200)
+        search_group.setFixedHeight(240)  # Increased height for category filter
         
         search_layout = self.QVBoxLayout(search_group)
         search_layout.setContentsMargins(10, 15, 10, 10)
@@ -576,19 +633,26 @@ class FixedLayoutMainWindow:
         # Bot filter
         bot_layout = self.QHBoxLayout()
         bot_layout.addWidget(self.QLabel("Bot:"))
-        self.bot_filter = self.QComboBox()
+        self.bot_filter = self.create_modern_combobox()
         self.bot_filter.addItem("All Bots")
-        self.bot_filter.setFixedHeight(28)
         self.bot_filter.currentTextChanged.connect(self.filter_conversations)
         bot_layout.addWidget(self.bot_filter)
         filter_layout.addLayout(bot_layout)
         
+        # Category filter (NEW)
+        category_layout = self.QHBoxLayout()
+        category_layout.addWidget(self.QLabel("Category:"))
+        self.category_filter = self.create_modern_combobox()
+        self.category_filter.addItem("All Categories")
+        self.category_filter.currentTextChanged.connect(self.filter_conversations)
+        category_layout.addWidget(self.category_filter)
+        filter_layout.addLayout(category_layout)
+        
         # Date filter
         date_layout = self.QHBoxLayout()
         date_layout.addWidget(self.QLabel("Date:"))
-        self.date_filter = self.QComboBox()
+        self.date_filter = self.create_modern_combobox()
         self.date_filter.addItems(["All Time", "Today", "This Week", "This Month"])
-        self.date_filter.setFixedHeight(28)
         self.date_filter.currentTextChanged.connect(self.filter_conversations)
         date_layout.addWidget(self.date_filter)
         filter_layout.addLayout(date_layout)
@@ -624,12 +688,12 @@ class FixedLayoutMainWindow:
         # Sort controls
         sort_layout = self.QHBoxLayout()
         sort_layout.addWidget(self.QLabel("Sort:"))
-        self.sort_combo = self.QComboBox()
+        self.sort_combo = self.create_modern_combobox()
         self.sort_combo.addItems([
             "📅 Date (Newest)", "📅 Date (Oldest)",
-            "🔤 Title (A-Z)", "💬 Messages (Most)"
+            "🔤 Title (A-Z)", "💬 Messages (Most)",
+            "📂 Category (A-Z)"  # NEW: Category sorting
         ])
-        self.sort_combo.setFixedHeight(28)
         self.sort_combo.currentTextChanged.connect(self.sort_conversations)
         sort_layout.addWidget(self.sort_combo)
         sort_layout.addStretch()
@@ -785,11 +849,10 @@ class FixedLayoutMainWindow:
         # Scope
         scope_layout = self.QHBoxLayout()
         scope_layout.addWidget(self.QLabel("Scope:"))
-        self.search_scope_combo = self.QComboBox()
+        self.search_scope_combo = self.create_modern_combobox()
         self.search_scope_combo.addItems([
             "All Conversations", "User Messages", "Assistant Messages", "Titles Only"
         ])
-        self.search_scope_combo.setFixedHeight(30)
         scope_layout.addWidget(self.search_scope_combo)
         scope_layout.addStretch()
         
@@ -828,7 +891,7 @@ class FixedLayoutMainWindow:
         layout.addWidget(results_group, 1)
     
     def create_analytics_tab(self):
-        """Create analytics tab with proper layout."""
+        """Create analytics tab with category support."""
         analytics_widget = self.QWidget()
         self.tab_widget.addTab(analytics_widget, "📊 Analytics")
         
@@ -850,12 +913,12 @@ class FixedLayoutMainWindow:
         self.total_conv_card = self.create_stat_card("💬", "Conversations", "0")
         self.total_msg_card = self.create_stat_card("📝", "Messages", "0")
         self.unique_bots_card = self.create_stat_card("🤖", "Bots", "0")
-        self.avg_msg_card = self.create_stat_card("📊", "Avg/Conv", "0")
+        self.unique_categories_card = self.create_stat_card("📂", "Categories", "0")  # NEW
         
         stats_grid.addWidget(self.total_conv_card)
         stats_grid.addWidget(self.total_msg_card)
         stats_grid.addWidget(self.unique_bots_card)
-        stats_grid.addWidget(self.avg_msg_card)
+        stats_grid.addWidget(self.unique_categories_card)
         
         overview_layout.addLayout(stats_grid)
         
@@ -870,7 +933,10 @@ class FixedLayoutMainWindow:
         
         layout.addWidget(overview_group)
         
-        # Bot stats (expandable)
+        # Content splitter for analytics
+        content_splitter = self.QSplitter(self.Qt.Orientation.Horizontal)
+        
+        # Bot stats (left side)
         bot_stats_group = self.QGroupBox("🤖 Bot Usage")
         bot_stats_layout = self.QVBoxLayout(bot_stats_group)
         bot_stats_layout.setContentsMargins(15, 20, 15, 15)
@@ -878,7 +944,22 @@ class FixedLayoutMainWindow:
         self.bot_stats_list = self.QListWidget()
         bot_stats_layout.addWidget(self.bot_stats_list)
         
-        layout.addWidget(bot_stats_group, 1)
+        content_splitter.addWidget(bot_stats_group)
+        
+        # Category stats (right side) - NEW
+        category_stats_group = self.QGroupBox("📂 Category Distribution")
+        category_stats_layout = self.QVBoxLayout(category_stats_group)
+        category_stats_layout.setContentsMargins(15, 20, 15, 15)
+        
+        self.category_stats_list = self.QListWidget()
+        category_stats_layout.addWidget(self.category_stats_list)
+        
+        content_splitter.addWidget(category_stats_group)
+        
+        # Set equal sizes
+        content_splitter.setSizes([400, 400])
+        
+        layout.addWidget(content_splitter, 1)
     
     def create_stat_card(self, icon: str, label: str, value: str):
         """Create a stat card widget."""
@@ -993,9 +1074,8 @@ class FixedLayoutMainWindow:
         # Theme
         theme_layout = self.QHBoxLayout()
         theme_layout.addWidget(self.QLabel("Theme:"))
-        self.theme_combo = self.QComboBox()
+        self.theme_combo = self.create_modern_combobox()
         self.theme_combo.addItems(["Dark Theme", "Light Theme"])
-        self.theme_combo.setFixedHeight(30)
         theme_layout.addWidget(self.theme_combo)
         theme_layout.addStretch()
         app_layout.addLayout(theme_layout)
@@ -1116,7 +1196,7 @@ class FixedLayoutMainWindow:
             }
             
             /* Input Fields */
-            QLineEdit, QComboBox {
+            QLineEdit {
                 background-color: #3c3c3c;
                 color: #ffffff;
                 border: 1px solid #555555;
@@ -1125,7 +1205,7 @@ class FixedLayoutMainWindow:
                 font-size: 12px;
             }
             
-            QLineEdit:focus, QComboBox:focus {
+            QLineEdit:focus {
                 border-color: #0078d4;
                 background-color: #404040;
             }
@@ -1449,33 +1529,24 @@ class FixedLayoutMainWindow:
         self.status_bar.showMessage(f"🔄 {message}")
 
     def on_sync_finished(self, conversations: List[Dict[str, Any]]):
-        """Handle successful sync completion."""
-        # Convert to simple conversation objects
-        converted_conversations = []
-        for conv_data in conversations:
-            class SimpleConversation:
-                def __init__(self, data):
-                    self.id = data['id']
-                    self.title = data['title']
-                    self.bot = data['bot']
-                    self.url = data['url']
-                    self.messages = data['messages']
-                    self.created_at = data['created_at']
-                
-                def to_dict(self):
-                    return {
-                        'id': self.id, 'title': self.title, 'bot': self.bot,
-                        'url': self.url, 'messages': self.messages,
-                        'created_at': self.created_at.isoformat() if hasattr(self.created_at, 'isoformat') else str(self.created_at)
-                    }
-            
-            converted_conversations.append(SimpleConversation(conv_data))
+        """Handle successful sync completion with category support."""
+        logging.info(f"Received {len(conversations)} conversations from browser client")
         
-        self.conversations = converted_conversations
+        # Store conversations directly (they're already in the right format with categories)
+        self.conversations = conversations
         
-        # Update UI
+        # Debug: Print first conversation to verify structure
+        if conversations:
+            logging.info(f"Sample conversation: {conversations[0]}")
+            if 'category' in conversations[0]:
+                logging.info(f"✅ Categories detected in conversation data")
+            else:
+                logging.warning("⚠️ No categories found in conversation data")
+        
+        # Update UI with category support
         self.populate_conversation_list()
         self.update_bot_filter()
+        self.update_category_filter()  # NEW: Update category filter
         self.update_stats()
         self.update_analytics()
         
@@ -1485,11 +1556,15 @@ class FixedLayoutMainWindow:
         self.sync_button.setEnabled(True)
         self.sync_button.setText("🚀 Enhanced Sync")
         
+        # Update status
         self.connection_status_label.setText("🟢 Sync complete")
         self.status_bar.showMessage(f"✅ Successfully synced {len(conversations)} conversations")
         
+        # Show success notification
         self.QMessageBox.information(self.window, "Sync Successful", 
-            f"🎉 Successfully synced {len(conversations)} conversations!")
+            f"🎉 Successfully synced {len(conversations)} conversations!\n\n"
+            f"Found conversations using multiple extraction methods.\n"
+            f"You can now browse and search your conversations.")
 
     def on_sync_error(self, error_message: str):
         """Handle sync errors."""
@@ -1504,17 +1579,265 @@ class FixedLayoutMainWindow:
         self.QMessageBox.critical(self.window, "Sync Error", 
             f"❌ Sync failed:\n{error_message}")
 
+    def update_category_filter(self):
+        """Update category filter dropdown with current categories."""
+        if not hasattr(self, 'category_filter'):
+            return
+            
+        current_selection = self.category_filter.currentText()
+        
+        # Extract unique categories from conversations
+        categories = set()
+        for conv in self.conversations:
+            if isinstance(conv, dict):
+                categories.add(conv.get('category', 'General'))
+            else:
+                categories.add(getattr(conv, 'category', 'General'))
+        
+        self.category_filter.clear()
+        self.category_filter.addItem("All Categories")
+        for category in sorted(categories):
+            self.category_filter.addItem(f"📂 {category}")
+        
+        # Restore selection if possible
+        if current_selection in [self.category_filter.itemText(i) for i in range(self.category_filter.count())]:
+            self.category_filter.setCurrentText(current_selection)
+
+    def filter_conversations(self):
+        """Enhanced filter with category support."""
+        if not hasattr(self, 'conversation_list'):
+            return
+        
+        # Get filter criteria
+        search_text = self.search_input.text().lower() if hasattr(self, 'search_input') else ""
+        bot_filter = self.bot_filter.currentText() if hasattr(self, 'bot_filter') else "All Bots"
+        category_filter = self.category_filter.currentText() if hasattr(self, 'category_filter') else "All Categories"
+        
+        # Filter conversations
+        filtered_conversations = []
+        
+        for conv in self.conversations:
+            # Extract data safely
+            if isinstance(conv, dict):
+                title = conv.get('title', '').lower()
+                bot = conv.get('bot', 'Assistant')
+                category = conv.get('category', 'General')
+            else:
+                title = getattr(conv, 'title', '').lower()
+                bot = getattr(conv, 'bot', 'Assistant')
+                category = getattr(conv, 'category', 'General')
+            
+            # Apply filters
+            if search_text and search_text not in title:
+                continue
+                
+            if bot_filter != "All Bots" and f"🤖 {bot}" != bot_filter:
+                continue
+                
+            if category_filter != "All Categories" and f"📂 {category}" != category_filter:
+                continue
+            
+            filtered_conversations.append(conv)
+        
+        # Update display
+        self.display_filtered_conversations(filtered_conversations)
+
+    def display_filtered_conversations(self, conversations):
+        """Display filtered conversations in the list."""
+        if not hasattr(self, 'conversation_list'):
+            return
+            
+        self.conversation_list.clear()
+        
+        if not conversations:
+            item = self.QListWidgetItem("🔍 No conversations match your filters.\n\nTry adjusting your search criteria.")
+            item.setData(self.Qt.ItemDataRole.UserRole, None)
+            self.conversation_list.addItem(item)
+            return
+        
+        for i, conv in enumerate(conversations):
+            try:
+                item = self.QListWidgetItem()
+                
+                # Extract data safely
+                if isinstance(conv, dict):
+                    title = conv.get('title', f'Conversation {i+1}')
+                    bot = conv.get('bot', 'Assistant')
+                    category = conv.get('category', 'General')
+                    method = conv.get('method', 'unknown')
+                    url = conv.get('url', '')
+                else:
+                    title = getattr(conv, 'title', f'Conversation {i+1}')
+                    bot = getattr(conv, 'bot', 'Assistant')
+                    category = getattr(conv, 'category', 'General')
+                    method = getattr(conv, 'method', 'unknown')
+                    url = getattr(conv, 'url', '')
+                
+                # Format display text with category
+                display_title = title[:50] + "..." if len(title) > 50 else title
+                subtitle = f"🤖 {bot} • 📂 {category} • 🔗 {method}"
+                
+                # Add URL indicator
+                url_indicator = " 🌐" if url and url != "No direct URL" else " 📄"
+                
+                item.setText(f"📝 {display_title}\n{subtitle}{url_indicator}")
+                item.setData(self.Qt.ItemDataRole.UserRole, conv)
+                
+                self.conversation_list.addItem(item)
+                
+            except Exception as e:
+                logging.error(f"Error displaying conversation {i}: {e}")
+                continue
+        
+        # Update stats
+        self.update_filter_stats(len(conversations))
+
+    def update_filter_stats(self, filtered_count: int):
+        """Update stats to show filtered results."""
+        if hasattr(self, 'list_stats'):
+            total_count = len(self.conversations)
+            if filtered_count == total_count:
+                self.list_stats.setText(f"📊 {total_count} conversations")
+            else:
+                self.list_stats.setText(f"📊 {filtered_count} of {total_count} conversations")
+
+    def populate_conversation_list(self):
+        """Populate the conversation list with better error handling and category support."""
+        if not hasattr(self, 'conversation_list'):
+            logging.warning("Conversation list widget not found")
+            return
+            
+        self.conversation_list.clear()
+        
+        if not self.conversations:
+            # Add helpful message when no conversations
+            item = self.QListWidgetItem("📭 No conversations loaded yet.\n\nClick '🚀 Enhanced Sync' to fetch your conversations from Poe.com")
+            item.setData(self.Qt.ItemDataRole.UserRole, None)
+            self.conversation_list.addItem(item)
+            return
+        
+        logging.info(f"Populating list with {len(self.conversations)} conversations")
+        
+        for i, conv in enumerate(self.conversations):
+            try:
+                item = self.QListWidgetItem()
+                
+                # Extract data safely
+                if isinstance(conv, dict):
+                    title = conv.get('title', f'Conversation {i+1}')
+                    bot = conv.get('bot', 'Assistant')
+                    category = conv.get('category', 'General')  # NEW: Category support
+                    method = conv.get('method', 'unknown')
+                    url = conv.get('url', '')
+                else:
+                    title = getattr(conv, 'title', f'Conversation {i+1}')
+                    bot = getattr(conv, 'bot', 'Assistant')
+                    category = getattr(conv, 'category', 'General')  # NEW: Category support
+                    method = getattr(conv, 'method', 'unknown')
+                    url = getattr(conv, 'url', '')
+                
+                # Format display text with category
+                display_title = title[:60] + "..." if len(title) > 60 else title
+                subtitle = f"🤖 {bot} • 📂 {category} • 🔗 {method}"  # NEW: Include category
+                
+                # Add URL indicator
+                url_indicator = " 🌐" if url and url != "No direct URL" else " 📄"
+                
+                item.setText(f"📝 {display_title}\n{subtitle}{url_indicator}")
+                item.setData(self.Qt.ItemDataRole.UserRole, conv)
+                
+                self.conversation_list.addItem(item)
+                
+            except Exception as e:
+                logging.error(f"Error adding conversation {i} to list: {e}")
+                continue
+        
+        # Update stats
+        self.update_stats()
+        logging.info(f"Successfully populated conversation list with {self.conversation_list.count()} items")
+
+    def update_bot_filter(self):
+        """Update bot filter dropdown with current bots."""
+        if not hasattr(self, 'bot_filter'):
+            return
+            
+        current_selection = self.bot_filter.currentText()
+        
+        # Extract unique bots from conversations
+        bots = set()
+        for conv in self.conversations:
+            if isinstance(conv, dict):
+                bots.add(conv.get('bot', 'Assistant'))
+            else:
+                bots.add(getattr(conv, 'bot', 'Assistant'))
+        
+        self.bot_filter.clear()
+        self.bot_filter.addItem("All Bots")
+        for bot in sorted(bots):
+            self.bot_filter.addItem(f"🤖 {bot}")
+        
+        # Restore selection if possible
+        if current_selection in [self.bot_filter.itemText(i) for i in range(self.bot_filter.count())]:
+            self.bot_filter.setCurrentText(current_selection)
+
+    def update_analytics(self):
+        """Update analytics with category information."""
+        if not self.conversations:
+            return
+        
+        # Basic stats
+        total_conversations = len(self.conversations)
+        total_messages = sum(len(conv.get('messages', [])) if isinstance(conv, dict) else len(getattr(conv, 'messages', [])) for conv in self.conversations)
+        
+        # Bot analysis
+        bots = {}
+        for conv in self.conversations:
+            bot = conv.get('bot', 'Assistant') if isinstance(conv, dict) else getattr(conv, 'bot', 'Assistant')
+            bots[bot] = bots.get(bot, 0) + 1
+        
+        # Category analysis (NEW)
+        categories = {}
+        for conv in self.conversations:
+            category = conv.get('category', 'General') if isinstance(conv, dict) else getattr(conv, 'category', 'General')
+            categories[category] = categories.get(category, 0) + 1
+        
+        # Update overview cards
+        if hasattr(self, 'total_conv_card'):
+            self.total_conv_card.value_label.setText(str(total_conversations))
+        if hasattr(self, 'total_msg_card'):
+            self.total_msg_card.value_label.setText(str(total_messages))
+        if hasattr(self, 'unique_bots_card'):
+            self.unique_bots_card.value_label.setText(str(len(bots)))
+        if hasattr(self, 'unique_categories_card'):  # NEW
+            self.unique_categories_card.value_label.setText(str(len(categories)))
+        
+        # Update bot stats
+        if hasattr(self, 'bot_stats_list'):
+            self.bot_stats_list.clear()
+            for bot, count in sorted(bots.items(), key=lambda x: x[1], reverse=True):
+                percentage = (count / total_conversations) * 100
+                item = self.QListWidgetItem(f"🤖 {bot}: {count} conversations ({percentage:.1f}%)")
+                self.bot_stats_list.addItem(item)
+        
+        # Update category stats (NEW)
+        if hasattr(self, 'category_stats_list'):
+            self.category_stats_list.clear()
+            for category, count in sorted(categories.items(), key=lambda x: x[1], reverse=True):
+                percentage = (count / total_conversations) * 100
+                item = self.QListWidgetItem(f"📂 {category}: {count} conversations ({percentage:.1f}%)")
+                self.category_stats_list.addItem(item)
+
+    def update_stats(self):
+        """Update header stats display."""
+        if hasattr(self, 'stats_label'):
+            self.stats_label.setText(f"📊 {len(self.conversations)} conversations")
+
     # Placeholder implementations for remaining functionality
     def save_current_tokens(self): pass
     def validate_tokens(self): pass
     def clear_config_tokens(self): pass
     def reload_tokens_from_config(self): pass
-    def filter_conversations(self): pass
     def sort_conversations(self): pass
-    def populate_conversation_list(self): pass
-    def update_bot_filter(self): pass
-    def update_stats(self): pass
-    def update_analytics(self): pass
     def on_conversation_selected(self, item): pass
     def display_conversation(self, conversation): pass
     def open_conversation_in_browser(self): pass
@@ -1533,7 +1856,7 @@ class FixedLayoutMainWindow:
 def main():
     """Main function with fixed layout GUI."""
     try:
-        print("🚀 Starting Poe Search GUI v1.2 (Fixed Layout)...")
+        print("🚀 Starting Poe Search GUI v1.3 (Fixed Layout with Categories)...")
         setup_logging()
         
         missing = check_dependencies()
@@ -1551,20 +1874,21 @@ def main():
         
         app = QApplication(sys.argv)
         app.setApplicationName("Poe Search")
-        app.setApplicationDisplayName("Poe Search - Fixed Layout v1.2")
-        app.setApplicationVersion("1.2.0")
+        app.setApplicationDisplayName("Poe Search - Fixed Layout v1.3")
+        app.setApplicationVersion("1.3.0")
         
         font = QFont("Segoe UI", 9)
         app.setFont(font)
         
-        print("✅ Creating fixed layout GUI...")
+        print("✅ Creating fixed layout GUI with categories...")
         
         main_window = FixedLayoutMainWindow()
         window = main_window.create_window()
         window.show()
         
-        print("🎉 Fixed layout GUI launched successfully!")
+        print("🎉 Fixed layout GUI with categories launched successfully!")
         print("✨ No more overlapping elements!")
+        print("📂 Category support enabled!")
         
         if tokens.get('p-b'):
             print("✅ Ready to sync conversations!")

@@ -9,7 +9,7 @@ conversations and messages from the Poe.com web interface.
 Author: Kevin Hildebrand
 Created: 2025-01-25
 License: MIT
-Version: 1.0.0
+Version: 1.1.0
 
 Dependencies:
     - selenium
@@ -343,7 +343,7 @@ class PoeApiClient:
 
     def get_conversations(self, limit: int = 50, progress_callback: Optional[Callable[[str, int], None]] = None) -> List[Dict[str, Any]]:
         """
-        Extract conversation list from Poe.com using multiple detection methods.
+        Extract conversation list using the EXACT same method as the working standalone script.
         
         Uses proven strategies to find and extract conversation metadata
         including titles, bot names, and URLs.
@@ -358,8 +358,9 @@ class PoeApiClient:
                 - title (str): Conversation title
                 - bot (str): Bot name used in conversation
                 - url (str): Full URL to conversation
-                - preview (str): Message preview if available
+                - method (str): Extraction method used
                 - extracted_at (str): Timestamp of extraction
+                - messages (list): Empty list (populated separately if needed)
         
         Example:
             >>> conversations = client.get_conversations(limit=10)
@@ -377,201 +378,109 @@ class PoeApiClient:
         
         try:
             if progress_callback:
-                progress_callback("Loading conversations page...", 10)
+                progress_callback("Loading conversations page...", 20)
             
             logger.info(f"🔍 Fetching conversation list (limit: {limit})")
             
-            # Ensure we're on the chats page
+            # Navigate to chats page (EXACT same as working script)
             self.driver.get("https://poe.com/chats")
-            time.sleep(3)
+            time.sleep(5)  # Increased wait time like working script
             
             conversations = []
             
-            # Method 1: Standard chat list items (Poe's expected structure)
+            # Method 1: Direct chat links (EXACT same as working script)
             if progress_callback:
-                progress_callback("Scanning for chat list items...", 30)
+                progress_callback("Extracting chat links...", 40)
             
-            try:
-                # Wait for conversation list to load
-                WebDriverWait(self.driver, 15).until(
-                    EC.any_of(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="chat-list-item"]')),
-                        EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid*="chat"]')),
-                        EC.presence_of_element_located((By.CSS_SELECTOR, 'a[href*="/chat/"]'))
-                    )
-                )
-                
-                # Try official chat list items first
-                chat_items = self.driver.find_elements(By.CSS_SELECTOR, '[data-testid="chat-list-item"]')
-                logger.info(f"Found {len(chat_items)} official chat list items")
-                
-                for item in chat_items[:limit]:
-                    try:
-                        # Extract conversation data from structured elements
-                        title_elem = item.find_element(By.CSS_SELECTOR, '[data-testid="chat-title"]') if \
-                                   item.find_elements(By.CSS_SELECTOR, '[data-testid="chat-title"]') else item
-                        
-                        title = title_elem.text.split('\n')[0] if title_elem.text else "Untitled"
-                        
-                        # Extract conversation ID from href
-                        href = item.get_attribute('href')
-                        if not href:
-                            # Look for nested links
-                            links = item.find_elements(By.TAG_NAME, 'a')
-                            href = links[0].get_attribute('href') if links else None
-                        
-                        conv_id = self._extract_conversation_id(href) if href else None
-                        
-                        # Extract bot name
-                        bot_text = item.text
-                        bot = self._extract_bot_name(bot_text)
-                        
-                        if conv_id and title:
-                            conversations.append({
-                                'id': conv_id,
-                                'title': title,
-                                'bot': bot,
-                                'url': href,
-                                'preview': bot_text,
-                                'method': 'official_chat_list',
-                                'extracted_at': datetime.now().isoformat()
-                            })
-                            
-                    except Exception as e:
-                        logger.debug(f"Error processing chat list item: {e}")
-                        continue
-                        
-            except TimeoutException:
-                logger.warning("Official chat list items not found, trying alternative methods")
+            chat_links = self.driver.find_elements(By.CSS_SELECTOR, "a[href*='/chat/']")
+            logger.info(f"Found {len(chat_links)} chat links")
             
-            # Method 2: Direct link detection (fallback)
-            if len(conversations) < limit:
-                if progress_callback:
-                    progress_callback("Scanning for chat links...", 50)
-                
-                link_selectors = [
-                    "a[href*='/chat/']",
-                    "a[href*='/conversation/']",
-                    "[data-testid*='chat'] a",
-                    "[data-testid*='conversation'] a"
-                ]
-                
-                for selector in link_selectors:
-                    try:
-                        elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                        logger.info(f"Selector '{selector}': found {len(elements)} elements")
-                        
-                        for elem in elements:
-                            if len(conversations) >= limit:
-                                break
-                                
-                            try:
-                                href = elem.get_attribute('href')
-                                if not href or not ('/chat/' in href or '/conversation/' in href):
-                                    continue
-                                
-                                conv_id = self._extract_conversation_id(href)
-                                
-                                # Avoid duplicates
-                                if any(conv['id'] == conv_id for conv in conversations):
-                                    continue
-                                
-                                title = (elem.text.strip() or 
-                                       elem.get_attribute('title') or 
-                                       elem.get_attribute('aria-label') or 
-                                       'Untitled Conversation')[:100]
-                                
-                                # Try to find bot name from parent elements
-                                parent = elem.find_element(By.XPATH, '..')
-                                bot = self._extract_bot_name(parent.text if parent else elem.text)
-                                
-                                conversations.append({
-                                    'id': conv_id,
-                                    'title': title,
-                                    'bot': bot,
-                                    'url': href,
-                                    'preview': title,
-                                    'method': f'direct_link-{selector}',
-                                    'extracted_at': datetime.now().isoformat()
-                                })
-                                
-                            except Exception as e:
-                                logger.debug(f"Error processing link element: {e}")
-                                continue
-                                
-                    except Exception as e:
-                        logger.debug(f"Selector {selector} failed: {e}")
-                        continue
-            
-            # Method 3: Scroll loading for more conversations
-            if len(conversations) < limit:
-                if progress_callback:
-                    progress_callback("Loading more conversations...", 70)
-                
+            for i, link in enumerate(chat_links):
+                if len(conversations) >= limit:
+                    break
+                    
                 try:
-                    initial_count = len(conversations)
+                    href = link.get_attribute('href')
+                    text = link.text.strip()
                     
-                    # Scroll to load more
-                    for scroll_attempt in range(3):
-                        self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                        time.sleep(2)
-                        
-                        # Look for newly loaded links
-                        new_links = self.driver.find_elements(By.CSS_SELECTOR, "a[href*='/chat/']")
-                        
-                        for link in new_links:
-                            if len(conversations) >= limit:
-                                break
-                                
-                            try:
-                                href = link.get_attribute('href')
-                                conv_id = self._extract_conversation_id(href)
-                                
-                                # Check for duplicates
-                                if any(conv['id'] == conv_id for conv in conversations):
-                                    continue
-                                
-                                title = link.text.strip() or 'Scrolled Conversation'
-                                bot = self._extract_bot_name(link.text)
-                                
-                                conversations.append({
-                                    'id': conv_id,
-                                    'title': title[:100],
-                                    'bot': bot,
-                                    'url': href,
-                                    'preview': title,
-                                    'method': 'scroll_discovery',
-                                    'extracted_at': datetime.now().isoformat()
-                                })
-                                
-                            except Exception as e:
-                                logger.debug(f"Error processing scrolled link: {e}")
-                                continue
-                    
-                    new_count = len(conversations) - initial_count
-                    if new_count > 0:
-                        logger.info(f"Found {new_count} additional conversations via scrolling")
+                    if href and text:
+                        conversations.append({
+                            'id': self._extract_conversation_id(href),
+                            'title': text[:100],
+                            'url': href,
+                            'bot': self._extract_bot_name(text),  # Try to extract from text
+                            'method': 'direct_link',
+                            'extracted_at': datetime.now().isoformat(),
+                            'messages': []  # Empty for now, will be populated if needed
+                        })
                         
                 except Exception as e:
-                    logger.warning(f"Scroll loading failed: {e}")
+                    logger.debug(f"Error processing chat link {i}: {e}")
+                    continue
+            
+            # Method 2: Chat containers (EXACT same as working script)
+            if progress_callback:
+                progress_callback("Extracting chat containers...", 60)
+            
+            chat_containers = self.driver.find_elements(By.CSS_SELECTOR, "[data-testid*='chat']")
+            logger.info(f"Found {len(chat_containers)} chat containers")
+            
+            for container in chat_containers:
+                if len(conversations) >= limit:
+                    break
+                    
+                try:
+                    text = container.text.strip()
+                    
+                    # Look for a link within this container
+                    links = container.find_elements(By.TAG_NAME, 'a')
+                    href = None
+                    for link in links:
+                        link_href = link.get_attribute('href')
+                        if link_href and '/chat/' in link_href:
+                            href = link_href
+                            break
+                    
+                    if text and 5 < len(text) < 200:
+                        # Check if we already have this conversation
+                        conv_id = self._extract_conversation_id(href) if href else f"container_{len(conversations)}"
+                        exists = any(conv['id'] == conv_id for conv in conversations)
+                        
+                        if not exists:
+                            conversations.append({
+                                'id': conv_id,
+                                'title': text[:100],
+                                'url': href or 'No direct URL',
+                                'bot': self._extract_bot_name(text),
+                                'method': 'container_text',
+                                'extracted_at': datetime.now().isoformat(),
+                                'messages': []
+                            })
+                            
+                except Exception as e:
+                    logger.debug(f"Error processing chat container: {e}")
+                    continue
             
             if progress_callback:
-                progress_callback("Processing complete!", 100)
+                progress_callback("Removing duplicates...", 80)
             
-            # Remove duplicates and limit results
-            seen_ids = set()
+            # Remove duplicates by URL (EXACT same as working script)
+            seen_urls = set()
             unique_conversations = []
             
             for conv in conversations:
-                if conv['id'] not in seen_ids:
-                    seen_ids.add(conv['id'])
+                if conv['url'] not in seen_urls:
+                    seen_urls.add(conv['url'])
                     unique_conversations.append(conv)
-                    
-                    if len(unique_conversations) >= limit:
-                        break
             
-            logger.info(f"✅ Successfully extracted {len(unique_conversations)} conversations")
-            return unique_conversations
+            # Limit results
+            final_conversations = unique_conversations[:limit]
+            
+            if progress_callback:
+                progress_callback("Extraction complete!", 100)
+            
+            logger.info(f"✅ Successfully extracted {len(final_conversations)} conversations")
+            return final_conversations
             
         except Exception as e:
             logger.error(f"❌ Failed to extract conversations: {e}")
@@ -753,7 +662,7 @@ class PoeApiClient:
 
     def _extract_conversation_id(self, url: str) -> str:
         """
-        Extract conversation ID from Poe.com URL.
+        Extract conversation ID from Poe.com URL with better error handling.
         
         Args:
             url (str): Full URL or path containing conversation ID
@@ -762,15 +671,29 @@ class PoeApiClient:
             str: Extracted conversation ID
         """
         if not url:
-            return ""
+            return f"unknown_{int(time.time())}"
         
-        # Extract from URLs like /chat/abc123 or https://poe.com/chat/xyz789
-        match = re.search(r'/(?:chat|conversation)/([a-zA-Z0-9_-]+)', url)
-        return match.group(1) if match else url.split('/')[-1]
+        try:
+            # Extract from URLs like /chat/abc123 or https://poe.com/chat/xyz789
+            match = re.search(r'/(?:chat|conversation)/([a-zA-Z0-9_-]+)', url)
+            if match:
+                return match.group(1)
+            
+            # Fallback: use last part of URL
+            parts = url.rstrip('/').split('/')
+            if len(parts) >= 2:
+                return parts[-1]
+            
+            # Final fallback: generate unique ID
+            return f"extracted_{int(time.time() * 1000)}"
+            
+        except Exception as e:
+            logger.debug(f"Error extracting conversation ID from {url}: {e}")
+            return f"error_{int(time.time())}"
 
     def _extract_bot_name(self, text: str) -> str:
         """
-        Extract bot name from conversation text using pattern matching.
+        Extract bot name from conversation text with improved patterns.
         
         Args:
             text (str): Text content to analyze
@@ -781,22 +704,38 @@ class PoeApiClient:
         if not text:
             return "Assistant"
         
-        # Common bot name patterns
+        # Clean the text
+        text = text.strip()
+        
+        # Known bot patterns (more comprehensive)
         bot_patterns = [
-            r'\b(Claude[^:\n]*)',
-            r'\b(GPT[^:\n]*)',
-            r'\b(Gemini[^:\n]*)',
-            r'\b(Assistant[^:\n]*)',
-            r'\b(ChatGPT[^:\n]*)',
-            r'\b([A-Z][a-z]+-\d+[^:\n]*)'  # Pattern like Claude-3, GPT-4
+            r'\b(Claude[^:\n\r]*)',
+            r'\b(GPT[^:\n\r]*)',
+            r'\b(ChatGPT[^:\n\r]*)',
+            r'\b(Gemini[^:\n\r]*)',
+            r'\b(Assistant[^:\n\r]*)',
+            r'\b(Anthropic[^:\n\r]*)',
+            r'\b(OpenAI[^:\n\r]*)',
+            r'\b([A-Z][a-z]+-\d+[^:\n\r]*)',  # Pattern like Claude-3, GPT-4
+            r'\b([A-Z][a-zA-Z]*Bot[^:\n\r]*)',  # Pattern like ChatBot
         ]
         
         for pattern in bot_patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 bot_name = match.group(1).strip()
-                if 5 <= len(bot_name) <= 50:  # Reasonable length
+                # Clean up the bot name
+                bot_name = re.sub(r'[^\w\s-]', '', bot_name)  # Remove special chars
+                if 3 <= len(bot_name) <= 30:  # Reasonable length
                     return bot_name
+        
+        # Try to extract from first few words if they look like a bot name
+        words = text.split()[:3]  # First 3 words
+        for word in words:
+            if len(word) > 3 and word[0].isupper():
+                # Check if it's a likely bot name
+                if any(indicator in word.lower() for indicator in ['claude', 'gpt', 'gemini', 'assistant', 'ai']):
+                    return word
         
         return "Assistant"
 
@@ -888,6 +827,28 @@ class PoeApiClient:
             logger.debug(f"Error determining message role: {e}")
             return "assistant"
 
+    def debug_conversation_extraction(self):
+        """Debug helper to check what elements are found."""
+        self.driver.get("https://poe.com/chats")
+        time.sleep(5)
+        
+        # Check what we can find
+        chat_links = self.driver.find_elements(By.CSS_SELECTOR, "a[href*='/chat/']")
+        print(f"🔗 Direct chat links: {len(chat_links)}")
+        
+        chat_containers = self.driver.find_elements(By.CSS_SELECTOR, "[data-testid*='chat']")
+        print(f"📦 Chat containers: {len(chat_containers)}")
+        
+        # Print first few for inspection
+        for i, link in enumerate(chat_links[:3]):
+            href = link.get_attribute('href')
+            text = link.text[:50].replace('\n', ' ')
+            print(f"  Link {i+1}: href={href}, text='{text}'")
+        
+        for i, container in enumerate(chat_containers[:3]):
+            text = container.text[:50].replace('\n', ' ')
+            print(f"  Container {i+1}: text='{text}'")
+
     def close(self) -> None:
         """
         Clean up resources and close the browser driver.
@@ -949,24 +910,31 @@ if __name__ == "__main__":
     # Use client with context manager for automatic cleanup
     with PoeApiClient(token=token, headless=False) as client:
         try:
+            # Debug what we can extract
+            print("🧪 Running debug extraction...")
+            client.debug_conversation_extraction()
+            
             # Get conversations
-            print("Fetching conversations...")
+            print("\n📋 Fetching conversations...")
             conversations = client.get_conversations(limit=5)
             
-            print(f"Found {len(conversations)} conversations:")
-            for conv in conversations:
-                print(f"- {conv['title']} ({conv['bot']})")
+            print(f"✅ Found {len(conversations)} conversations:")
+            for i, conv in enumerate(conversations):
+                print(f"  {i+1}. {conv['title']} ({conv['bot']}) - {conv['method']}")
             
-            # Get messages from first conversation
+            # Get messages from first conversation if available
             if conversations:
                 conv_id = conversations[0]['id']
-                print(f"\nFetching messages from: {conversations[0]['title']}")
+                print(f"\n💬 Fetching messages from: {conversations[0]['title']}")
                 
                 messages = client.get_conversation_messages(conv_id)
-                print(f"Found {len(messages)} messages:")
+                print(f"✅ Found {len(messages)} messages:")
                 
-                for msg in messages[:3]:  # Show first 3 messages
-                    print(f"{msg['role']}: {msg['content'][:100]}...")
+                for i, msg in enumerate(messages[:3]):  # Show first 3 messages
+                    content_preview = msg['content'][:100].replace('\n', ' ')
+                    print(f"  {i+1}. {msg['role']}: {content_preview}...")
             
         except Exception as e:
             print(f"❌ Error: {e}")
+            import traceback
+            traceback.print_exc()

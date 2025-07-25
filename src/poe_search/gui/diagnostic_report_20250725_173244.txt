@@ -1,0 +1,27 @@
+Poe Search Diagnostic Report
+Generated: 2025-07-25 17:32:44
+Project Root: /home/kevin/Projects/poe-search/src/poe_search/gui
+
+==================================================
+
+DEPENDENCY STATUS:
+  PyQt6: ✅ Available
+  Selenium: ✅ Available
+  Browser Client: ✅ Available
+
+TOKEN STATUS:
+  Config File: ❌ Missing
+  Primary Token: ❌ Missing
+  Secondary Token: ⚠️ Missing (optional)
+
+TEST RESULTS:
+  Browser Setup: ✅ Passed
+  Authentication: ❌ Failed
+  Conversation Extraction: ❌ Failed
+  GUI Components: ✅ Passed
+  Integration Test: ❌ Failed
+
+RECOMMENDATIONS:
+  ❌ Configure Poe tokens in config/poe_tokens.json
+  ❌ Verify Poe tokens are valid and not expired
+  ❌ Check Poe.com access and token permissions

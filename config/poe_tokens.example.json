@@ -1,0 +1,9 @@
+# poe_tokens.example.json
+# This is a sample Poe tokens config file for reference.
+# Copy this file to poe_tokens.json and fill in your real tokens for production use.
+
+{
+  "p-b": "example_p_b_token",
+  "p-lat": "example_p_lat_token",
+  "formkey": "example_formkey"
+}

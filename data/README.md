@@ -27,3 +27,6 @@ Database files should only be deleted if you want to start fresh (this will lose
 
 # This folder contains exported conversation snapshots and large data files.
 # These files are git-ignored by default. Move any large exports here.
+# Note: This directory is intended for user exports and large files that are not
+# part of the regular application data. Keeping exports here helps in managing
+# storage and prevents accidental deletion of important data.

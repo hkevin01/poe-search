@@ -223,3 +223,31 @@ jobs:
       - name: Test GUI components (headless)
         run: |
           python -c "from poe_search.gui import main; print('GUI imports successfully')"
+
+  ci:
+    runs-on: ubuntu-latest
+    needs: [test, lint]
+    if: always() && (needs.test.result == 'success' || needs.test.result == 'skipped') && (needs.lint.result == 'success' || needs.lint.result == 'skipped')
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev,gui]"
+      - name: Lint
+        run: make lint
+      - name: Test
+        run: make test
+      - name: Build docs
+        run: make docs
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          fail_ci_if_error: true

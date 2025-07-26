@@ -54,16 +54,17 @@ setup: install-dev install-gui
 
 # Testing targets
 test:
-	python -m pytest tests/ --cov=poe_search --cov-report=term-missing --cov-report=html
+	pytest tests/ -v --cov=src/poe_search
 
 test-no-cov:
 	python -m pytest tests/
 
 # Code quality targets
 lint:
-	python -m ruff check src/ tests/
-	python -m black --check src/ tests/
-	python -m mypy src/poe_search/
+	black --check src/ tests/
+	isort --check-only src/ tests/
+	flake8 src/ tests/
+	mypy src/poe_search/
 
 format:
 	python -m black src/ tests/
@@ -93,7 +94,7 @@ build: clean
 	python -m build
 
 docs:
-	python -m mkdocs build
+	mkdocs build
 
 docs-serve:
 	@echo "Documentation will be available at http://localhost:8000"
@@ -150,4 +151,4 @@ quickstart: setup
 	@echo "  - Start GUI: make gui"
 	@echo "  - Run CLI: make cli ARGS='search \"test\"'"
 	@echo "  - Format code: make format"
-	@echo "  - Check linting: make lint" 
+	@echo "  - Check linting: make lint"

@@ -1,190 +1,170 @@
 #!/usr/bin/env python3
 """
-Quick Poe.com Conversation Lister - Simplified for immediate results
+Quick Poe.com Conversation Lister - Simplified (no formkey required)
 """
 
 import time
 import json
 import os
+import argparse
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 
 def setup_browser(headless=True):
-    """Quick browser setup"""
-    options = ChromeOptions()
+    opts = ChromeOptions()
     if headless:
-        options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
-    
-    driver = webdriver.Chrome(options=options)
+        opts.add_argument("--headless")
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--disable-gpu")
+    opts.add_argument("--window-size=1920,1080")
+    driver = webdriver.Chrome(options=opts)
     driver.implicitly_wait(10)
     return driver
 
-def load_tokens():
-    """Load tokens from config"""
-    config_path = "/home/kevin/Projects/poe-search/config/poe_tokens.json"
-    with open(config_path, 'r') as f:
-        return json.load(f)
+def load_tokens(config_path):
+    """Load p-b (required) and p-lat/formkey (optional) from JSON."""
+    if not os.path.isfile(config_path):
+        raise FileNotFoundError(f"Config not found: {config_path}")
+    with open(config_path, 'r', encoding='utf-8') as f:
+        tokens = json.load(f)
+    if "p-b" not in tokens or not tokens["p-b"]:
+        raise KeyError(f"Missing required token 'p-b' in {config_path}")
+    # p-lat and formkey are optional
+    return tokens
 
-def set_cookies_and_go_to_chats(driver, tokens):
-    """Set cookies and navigate to chats"""
-    print("🌐 Going to poe.com and setting cookies...")
-    
-    # Go to poe.com
+def set_cookies(driver, tokens):
+    """Navigate to base, set cookies, then go to /chats."""
     driver.get("https://poe.com")
-    time.sleep(2)
-    
-    # Set cookies
+    time.sleep(1)
+
+    # always set p-b
     driver.add_cookie({
-        'name': 'p-b',
-        'value': tokens['p-b'],
-        'domain': '.poe.com',
-        'path': '/',
-        'secure': True
+        "name":   "p-b",
+        "value":  tokens["p-b"],
+        "domain": "poe.com",
+        "path":   "/",
+        "secure": True
     })
-    
-    if tokens.get('p-lat'):
+    # optional p-lat
+    if tokens.get("p-lat"):
         driver.add_cookie({
-            'name': 'p-lat', 
-            'value': tokens['p-lat'],
-            'domain': '.poe.com',
-            'path': '/',
-            'secure': True
+            "name":   "p-lat",
+            "value":  tokens["p-lat"],
+            "domain": "poe.com",
+            "path":   "/",
+            "secure": True
         })
-    
-    # Go to chats page
-    print("🔗 Navigating to /chats...")
+    # optional formkey
+    if tokens.get("formkey"):
+        driver.add_cookie({
+            "name":   "formkey",
+            "value":  tokens["formkey"],
+            "domain": "poe.com",
+            "path":   "/",
+            "secure": True
+        })
+
+    # now load the chats page
     driver.get("https://poe.com/chats")
-    time.sleep(5)
-    
-    return driver.current_url
+    time.sleep(2)
+
+def scroll_to_bottom(driver, pause=1.0):
+    """Ensure lazy-loaded chats are all loaded."""
+    last_h = driver.execute_script("return document.body.scrollHeight")
+    while True:
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(pause)
+        new_h = driver.execute_script("return document.body.scrollHeight")
+        if new_h == last_h:
+            break
+        last_h = new_h
 
 def extract_conversations(driver):
-    """Extract conversation data quickly"""
-    print("📋 Extracting conversations...")
-    
-    conversations = []
-    
-    # Method 1: Get all chat links
-    chat_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='/chat/']")
-    print(f"   Found {len(chat_links)} chat links")
-    
-    for i, link in enumerate(chat_links):
-        try:
-            href = link.get_attribute('href')
-            text = link.text.strip()
-            
-            if href and text:
-                conversations.append({
-                    'id': i + 1,
-                    'title': text[:100],
-                    'url': href,
-                    'method': 'direct_link'
-                })
-                
-        except Exception as e:
-            continue
-    
-    # Method 2: Look for text in chat containers that don't have direct links
-    chat_containers = driver.find_elements(By.CSS_SELECTOR, "[data-testid*='chat']")
-    print(f"   Found {len(chat_containers)} chat containers")
-    
-    for i, container in enumerate(chat_containers):
-        try:
-            text = container.text.strip()
-            
-            # Look for a link within this container
-            links = container.find_elements(By.TAG_NAME, 'a')
-            href = None
-            for link in links:
-                link_href = link.get_attribute('href')
-                if link_href and '/chat/' in link_href:
-                    href = link_href
-                    break
-            
-            if text and len(text) > 5 and len(text) < 200:
-                # Check if we already have this conversation
-                exists = any(conv['url'] == href for conv in conversations if href)
-                
-                if not exists:
-                    conversations.append({
-                        'id': len(conversations) + 1,
-                        'title': text[:100],
-                        'url': href or 'No direct URL',
-                        'method': 'container_text'
-                    })
-                    
-        except Exception as e:
-            continue
-    
-    # Remove duplicates by URL
-    seen_urls = set()
-    unique_conversations = []
-    
-    for conv in conversations:
-        if conv['url'] not in seen_urls:
-            seen_urls.add(conv['url'])
-            unique_conversations.append(conv)
-    
-    return unique_conversations
+    """Extract chat links and titles."""
+    scroll_to_bottom(driver)
 
-def print_results(conversations):
-    """Print results clearly"""
-    if not conversations:
-        print("❌ No conversations extracted!")
+    convs = []
+    # Method 1: direct /chat/ links
+    links = driver.find_elements(By.CSS_SELECTOR, "a[href*='/chat/']")
+    for idx, a in enumerate(links, start=1):
+        href = a.get_attribute("href")
+        title = a.text.strip() or "(no title)"
+        convs.append({
+            "id":     idx,
+            "title":  title[:100],
+            "url":    href,
+            "method": "link"
+        })
+
+    # Method 2: any chat tiles without link
+    tiles = driver.find_elements(By.CSS_SELECTOR, "[data-testid^='chat']")
+    for tile in tiles:
+        text = tile.text.strip()
+        if len(text) < 5:
+            continue
+        try:
+            href = tile.find_element(By.TAG_NAME, "a").get_attribute("href")
+        except:
+            href = None
+        convs.append({
+            "id":     len(convs) + 1,
+            "title":  text[:100],
+            "url":    href or "(no-url)",
+            "method": "tile"
+        })
+
+    # dedupe by URL
+    seen = set()
+    unique = []
+    for c in convs:
+        if c["url"] in seen:
+            continue
+        seen.add(c["url"])
+        unique.append(c)
+    return unique
+
+def print_and_save(convs):
+    if not convs:
+        print("❌ No conversations found.")
         return
-    
-    print(f"\n✅ Found {len(conversations)} conversations:")
-    print("=" * 80)
-    
-    for conv in conversations:
-        print(f"{conv['id']:3d}. {conv['title']}")
-        print(f"     URL: {conv['url']}")
-        print(f"     Method: {conv['method']}")
-        print("-" * 80)
-    
-    # Save to file
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"conversations_{timestamp}.json"
-    
-    with open(filename, 'w', encoding='utf-8') as f:
-        json.dump(conversations, f, indent=2, ensure_ascii=False)
-    
-    print(f"\n💾 Saved to: {filename}")
+    print(f"\n✅ Found {len(convs)} conversations:\n" + "="*60)
+    for c in convs:
+        print(f"{c['id']:3d}. {c['title']}")
+        print(f"     URL: {c['url']}   (via {c['method']})")
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    fname = f"conversations_{stamp}.json"
+    with open(fname, 'w', encoding='utf-8') as f:
+        json.dump(convs, f, indent=2, ensure_ascii=False)
+    print(f"\n💾 Saved to {fname}")
 
 def main():
-    """Main execution"""
-    print("🚀 Quick Poe Conversation Extractor")
-    print("=" * 40)
-    
-    # Load tokens
-    tokens = load_tokens()
-    print(f"🔑 Loaded p-b token: {tokens['p-b'][:15]}...")
-    
-    # Setup browser
-    driver = setup_browser(headless=True)
-    
+    p = argparse.ArgumentParser(description="Quick Poe Conversation Lister")
+    p.add_argument(
+        "--config", "-c",
+        default=os.path.expanduser("~/Projects/poe-search/config/poe_tokens.json"),
+        help="Path to your poe_tokens.json"
+    )
+    p.add_argument(
+        "--no-headless", action="store_true",
+        help="Show browser window for debugging"
+    )
+    args = p.parse_args()
+
+    print("🚀 Poe Conversation Lister")
+    tokens = load_tokens(args.config)
+    print(f"🔑 p-b token: {tokens['p-b'][:16]}…")
+    driver = setup_browser(headless=not args.no_headless)
+
     try:
-        # Authenticate and navigate
-        current_url = set_cookies_and_go_to_chats(driver, tokens)
-        print(f"📍 Current URL: {current_url}")
-        
-        # Extract conversations
-        conversations = extract_conversations(driver)
-        
-        # Print results
-        print_results(conversations)
-        
+        set_cookies(driver, tokens)
+        convs = extract_conversations(driver)
+        print_and_save(convs)
     except Exception as e:
-        print(f"❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
-        
+        print("❌ Error:", e)
+        raise
     finally:
         driver.quit()
 

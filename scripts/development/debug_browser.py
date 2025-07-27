@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 
 # Add src to path
-project_root = Path(__file__).parent  # This file is in the project root
+project_root = Path(__file__).parent.parent  # scripts/ is one level down from root
 sys.path.insert(0, str(project_root / "src"))
 
 def test_browser_client():

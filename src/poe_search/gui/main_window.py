@@ -1,603 +1,546 @@
-# src/poe_search/gui/main_window.py
+#!/usr/bin/env python3
+"""
+Main GUI application for Poe Search.
+
+Modern PyQt6-based interface for managing and searching Poe.com conversations.
+"""
+
 import sys
-import asyncio
-from typing import List, Optional
+import os
+import json
+import logging
 from pathlib import Path
+from typing import Optional, List, Dict, Any, Callable
 
-from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QListWidget, QListWidgetItem, QTextEdit, QLineEdit, QPushButton,
-    QLabel, QComboBox, QProgressBar, QMessageBox, QStatusBar,
-    QMenuBar, QMenu, QFileDialog, QCheckBox, QApplication  # ← Added this import
-)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings
-from PyQt6.QtGui import QFont, QTextCharFormat, QColor, QAction
+try:
+    from PyQt6.QtWidgets import *
+    from PyQt6.QtCore import *
+    from PyQt6.QtGui import *
+    from PyQt6 import QtCore
+except ImportError:
+    print("❌ PyQt6 not found. Please install with: pip install PyQt6")
+    sys.exit(1)
+
+# Add project root to path for imports
+project_root = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(project_root / "src"))
+
+from poe_search.api.browser_client import PoeApiClient
+from poe_search.core.utils import safe_json_load, safe_json_save, get_project_root
 
 
-from ..api.client import create_poe_client, PoeApiClient
-from ..models.conversation import Conversation, Message
-from ..database.manager import DatabaseManager
-from ..utils.logger import get_logger
-from ..config.settings import get_config
+class PoeSearchGUI:
+    """Main GUI application for Poe Search."""
 
-logger = get_logger(__name__)
-
-class ConversationSyncThread(QThread):
-    """Background thread for syncing conversations"""
-    progress_update = pyqtSignal(int, str)
-    conversations_loaded = pyqtSignal(list)
-    error_occurred = pyqtSignal(str)
-    
-    def __init__(self, poe_client: PoeApiClient, limit: int = 50):
-        super().__init__()
-        self.poe_client = poe_client
-        self.limit = limit
-        
-    def run(self):
-        try:
-            self.progress_update.emit(0, "Connecting to Poe...")
-            
-            # Connect to Poe
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-            connected = loop.run_until_complete(self.poe_client.connect())
-            if not connected:
-                self.error_occurred.emit("Failed to connect to Poe. Please check your token.")
-                return
-            
-            self.progress_update.emit(25, "Fetching conversations...")
-            
-            # Fetch conversations
-            conversations = loop.run_until_complete(
-                self.poe_client.get_conversations(self.limit)
-            )
-            
-            self.progress_update.emit(75, "Loading messages...")
-            
-            # Fetch messages for first few conversations
-            for i, conv in enumerate(conversations[:5]):  # Limit to first 5 for speed
-                messages = loop.run_until_complete(
-                    self.poe_client.get_conversation_messages(conv.id)
-                )
-                conv.messages = messages
-                
-                progress = 75 + (i + 1) * 5  # 75% to 100%
-                self.progress_update.emit(progress, f"Loaded messages for {conv.title[:30]}...")
-            
-            self.progress_update.emit(100, "Complete!")
-            self.conversations_loaded.emit(conversations)
-            
-        except Exception as e:
-            logger.error(f"Error in sync thread: {e}")
-            self.error_occurred.emit(f"Sync failed: {str(e)}")
-
-class ChatListWidget(QListWidget):
-    """Custom list widget for displaying conversations"""
-    
-    conversation_selected = pyqtSignal(Conversation)
-    
     def __init__(self):
-        super().__init__()
+        """Initialize the GUI application."""
+        self.app = QApplication(sys.argv)
+        self.app.setApplicationName("Poe Search")
+        self.app.setApplicationVersion("1.3.0")
+
+        # Initialize data
         self.conversations = []
-        self.setup_ui()
-        
-    def setup_ui(self):
-        self.setAlternatingRowColors(True)
-        self.setStyleSheet("""
-            QListWidget {
-                background-color: #2b2b2b;
-                color: #ffffff;
-                border: 1px solid #404040;
-                border-radius: 8px;
-                padding: 5px;
-            }
-            QListWidget::item {
-                padding: 10px;
-                border-bottom: 1px solid #404040;
-                border-radius: 4px;
-                margin: 2px;
-            }
-            QListWidget::item:selected {
-                background-color: #0078d4;
-                color: white;
-            }
-            QListWidget::item:hover {
-                background-color: #404040;
-            }
-        """)
-        
-        self.itemClicked.connect(self._on_item_clicked)
-    
-    def populate_conversations(self, conversations: List[Conversation]):
-        """Populate the list with conversations"""
-        self.clear()
-        self.conversations = conversations
-        
-        for conv in conversations:
-            # Create display text
-            title = conv.title[:50] + "..." if len(conv.title) > 50 else conv.title
-            subtitle = f"{conv.bot} • {len(conv.messages)} messages"
-            display_text = f"{title}\n{subtitle}"
-            
-            # Create list item
-            item = QListWidgetItem(display_text)
-            item.setData(Qt.ItemDataRole.UserRole, conv.id)
-            
-            # Add to list
-            self.addItem(item)
-    
-    def _on_item_clicked(self, item: QListWidgetItem):
-        """Handle conversation selection"""
-        conv_id = item.data(Qt.ItemDataRole.UserRole)
-        
-        # Find conversation object
-        conversation = None
-        for conv in self.conversations:
-            if conv.id == conv_id:
-                conversation = conv
-                break
-        
-        if conversation:
-            self.conversation_selected.emit(conversation)
+        self.filtered_conversations = []
+        self.current_conversation = None
+        self.client = None
+        self.loaded_tokens = {}
 
-class ChatViewerWidget(QTextEdit):
-    """Widget for displaying conversation messages"""
-    
-    def __init__(self):
-        super().__init__()
-        self.setup_ui()
-        
-    def setup_ui(self):
-        self.setReadOnly(True)
-        self.setStyleSheet("""
-            QTextEdit {
-                background-color: #1e1e1e;
-                color: #ffffff;
-                border: 1px solid #404040;
-                border-radius: 8px;
-                padding: 15px;
-                font-family: 'Segoe UI', Arial, sans-serif;
-                font-size: 14px;
-                line-height: 1.6;
-            }
-        """)
-        
-        # Set font
-        font = QFont("Segoe UI", 11)
-        self.setFont(font)
-    
-    def display_conversation(self, conversation: Conversation):
-        """Display a conversation with proper formatting"""
-        if not conversation or not conversation.messages:
-            self.setText("No messages to display.")
-            return
-        
-        html_content = self._format_conversation_html(conversation)
-        self.setHtml(html_content)
-    
-    def _format_conversation_html(self, conversation: Conversation) -> str:
-        """Format conversation as HTML"""
-        html = f"""
-        <html>
-        <head>
-            <style>
-                body {{ 
-                    font-family: 'Segoe UI', Arial, sans-serif;
-                    line-height: 1.6;
-                    color: #ffffff;
-                    background-color: #1e1e1e;
-                    margin: 0;
-                    padding: 20px;
-                }}
-                .conversation-header {{
-                    border-bottom: 2px solid #404040;
-                    padding-bottom: 15px;
-                    margin-bottom: 20px;
-                }}
-                .conversation-title {{
-                    font-size: 20px;
-                    font-weight: bold;
-                    color: #0078d4;
-                    margin-bottom: 5px;
-                }}
-                .conversation-meta {{
-                    color: #888888;
-                    font-size: 12px;
-                }}
-                .message {{
-                    margin-bottom: 20px;
-                    padding: 15px;
-                    border-radius: 8px;
-                    border-left: 4px solid;
-                }}
-                .user-message {{
-                    background-color: #2a2a2a;
-                    border-left-color: #0078d4;
-                }}
-                .assistant-message {{
-                    background-color: #252525;
-                    border-left-color: #00b294;
-                }}
-                .message-role {{
-                    font-weight: bold;
-                    margin-bottom: 8px;
-                    font-size: 13px;
-                }}
-                .user-role {{ color: #0078d4; }}
-                .assistant-role {{ color: #00b294; }}
-                .message-content {{
-                    white-space: pre-wrap;
-                    word-wrap: break-word;
-                }}
-                .timestamp {{
-                    color: #666666;
-                    font-size: 11px;
-                    margin-top: 8px;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="conversation-header">
-                <div class="conversation-title">{conversation.title}</div>
-                <div class="conversation-meta">
-                    Bot: {conversation.bot} • 
-                    Messages: {len(conversation.messages)} • 
-                    Created: {conversation.created_at.strftime('%Y-%m-%d %H:%M')}
-                </div>
-            </div>
-        """
-        
-        # Add messages
-        for message in conversation.messages:
-            role_class = "user" if message.role == "user" else "assistant"
-            role_display = "You" if message.role == "user" else (message.bot_name or "Assistant")
-            
-            html += f"""
-            <div class="message {role_class}-message">
-                <div class="message-role {role_class}-role">{role_display}</div>
-                <div class="message-content">{self._escape_html(message.content)}</div>
-                <div class="timestamp">{message.timestamp.strftime('%Y-%m-%d %H:%M:%S')}</div>
-            </div>
-            """
-        
-        html += "</body></html>"
-        return html
-    
-    def _escape_html(self, text: str) -> str:
-        """Escape HTML special characters"""
-        import html
-        return html.escape(text)
+        # Setup logging
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger(__name__)
 
-class MainWindow(QMainWindow):
-    """Main application window"""
-    
-    def __init__(self):
-        super().__init__()
-        self.poe_client = None
-        self.db_manager = None
-        self.conversations = []
-        self.settings = QSettings("PoeSearch", "MainApp")
-        
+        # Setup UI
         self.setup_ui()
-        self.setup_connections()
         self.load_settings()
-        
+        self.update_display()
+
     def setup_ui(self):
-        """Set up the user interface"""
-        self.setWindowTitle("Poe Search - Chat Viewer")
-        self.setGeometry(100, 100, 1400, 800)
-        
-        # Create menu bar
-        self.create_menu_bar()
-        
-        # Create main widget and layout
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        
-        layout = QVBoxLayout(main_widget)
-        
-        # Top toolbar
-        toolbar_layout = QHBoxLayout()
-        
-        # Token input
-        toolbar_layout.addWidget(QLabel("Poe Token:"))
-        self.token_input = QLineEdit()
-        self.token_input.setPlaceholderText("Enter your p-b cookie value...")
-        self.token_input.setEchoMode(QLineEdit.EchoMode.Password)
-        toolbar_layout.addWidget(self.token_input)
-        
-        # Sync button
-        self.sync_button = QPushButton("🔄 Sync Conversations")
-        self.sync_button.clicked.connect(self.sync_conversations)
-        toolbar_layout.addWidget(self.sync_button)
-        
-        # Headless checkbox
-        self.headless_checkbox = QCheckBox("Headless Mode")
-        toolbar_layout.addWidget(self.headless_checkbox)
-        
-        layout.addLayout(toolbar_layout)
-        
+        """Setup the user interface."""
+        # Create main window
+        self.window = QMainWindow()
+        self.window.setWindowTitle("🔍 Poe Search - Enhanced AI Conversation Manager")
+        self.window.setGeometry(100, 100, 1400, 900)
+
+        # Create central widget
+        central_widget = QWidget()
+        self.window.setCentralWidget(central_widget)
+
+        # Create main layout
+        main_layout = QHBoxLayout(central_widget)
+
+        # Create left panel (conversation list)
+        left_panel = self.create_left_panel()
+        main_layout.addWidget(left_panel, 1)
+
+        # Create right panel (conversation viewer)
+        right_panel = self.create_right_panel()
+        main_layout.addWidget(right_panel, 2)
+
+        # Create status bar
+        self.status_bar = self.window.statusBar()
+        self.status_bar.showMessage("Ready")
+
+        # Apply styling
+        self.apply_theme()
+
+    def create_left_panel(self):
+        """Create the left panel with conversation list and controls."""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+
+        # Title
+        title = QLabel("📋 Conversations")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; padding: 10px;")
+        layout.addWidget(title)
+
+        # Search and filters
+        search_layout = QHBoxLayout()
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("🔍 Search conversations...")
+        self.search_input.textChanged.connect(self.filter_conversations)
+        search_layout.addWidget(self.search_input)
+
+        self.category_filter = QComboBox()
+        self.category_filter.addItems([
+            "All Categories", "Technical", "Creative", "Educational",
+            "Business", "Science", "General", "Claude Conversations",
+            "GPT Conversations", "Gemini Conversations"
+        ])
+        self.category_filter.currentTextChanged.connect(self.filter_conversations)
+        search_layout.addWidget(self.category_filter)
+
+        layout.addLayout(search_layout)
+
+        # Sync controls
+        sync_layout = QHBoxLayout()
+
+        self.sync_button = QPushButton("🚀 Enhanced Sync")
+        self.sync_button.clicked.connect(self.start_sync)
+        sync_layout.addWidget(self.sync_button)
+
+        self.limit_spinbox = QSpinBox()
+        self.limit_spinbox.setRange(1, 1000)
+        self.limit_spinbox.setValue(50)
+        self.limit_spinbox.setSuffix(" conversations")
+        sync_layout.addWidget(self.limit_spinbox)
+
+        layout.addLayout(sync_layout)
+
         # Progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
-        
-        # Main content area
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        
-        # Left panel: Chat list
-        left_panel = QWidget()
-        left_layout = QVBoxLayout(left_panel)
-        
-        # Search bar
-        search_layout = QHBoxLayout()
-        search_layout.addWidget(QLabel("Search:"))
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search conversations...")
-        self.search_input.textChanged.connect(self.filter_conversations)
-        search_layout.addWidget(self.search_input)
-        left_layout.addLayout(search_layout)
-        
-        # Chat list
-        self.chat_list = ChatListWidget()
-        left_layout.addWidget(self.chat_list)
-        
-        # Right panel: Chat viewer
-        self.chat_viewer = ChatViewerWidget()
-        
-        # Add panels to splitter
-        splitter.addWidget(left_panel)
-        splitter.addWidget(self.chat_viewer)
-        splitter.setStretchFactor(0, 1)  # Left panel
-        splitter.setStretchFactor(1, 2)  # Right panel wider
-        
-        layout.addWidget(splitter)
-        
-        # Status bar
-        self.status_bar = QStatusBar()
-        self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Ready - Enter your Poe token and click Sync")
-        
-        # Apply dark theme
-        self.apply_dark_theme()
-    
-    def create_menu_bar(self):
-        """Create application menu bar"""
-        menubar = self.menuBar()
-        
-        # File menu
-        file_menu = menubar.addMenu('File')
-        
-        export_action = QAction('Export Conversations', self)
-        export_action.triggered.connect(self.export_conversations)
-        file_menu.addAction(export_action)
-        
-        file_menu.addSeparator()
-        
-        exit_action = QAction('Exit', self)
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
-        
-        # Settings menu
-        settings_menu = menubar.addMenu('Settings')
-        
-        config_action = QAction('Configuration', self)
-        config_action.triggered.connect(self.open_settings)
-        settings_menu.addAction(config_action)
-    
-    def setup_connections(self):
-        """Set up signal connections"""
-        self.chat_list.conversation_selected.connect(self.display_conversation)
-    
-    def load_settings(self):
-        """Load saved settings"""
-        # Load token (encrypted in real implementation)
-        saved_token = self.settings.value("poe_token", "")
-        if saved_token:
-            self.token_input.setText(saved_token)
-        
-        # Load headless preference
-        headless = self.settings.value("headless_mode", False, type=bool)
-        self.headless_checkbox.setChecked(headless)
-    
-    def save_settings(self):
-        """Save current settings"""
-        self.settings.setValue("poe_token", self.token_input.text())
-        self.settings.setValue("headless_mode", self.headless_checkbox.isChecked())
-    
-    def apply_dark_theme(self):
-        """Apply dark theme to the application"""
-        self.setStyleSheet("""
+
+        # Conversation list
+        self.conversation_list = QListWidget()
+        self.conversation_list.itemClicked.connect(self.on_conversation_selected)
+        layout.addWidget(self.conversation_list)
+
+        # Statistics
+        self.stats_label = QLabel("No conversations loaded")
+        self.stats_label.setStyleSheet("color: gray; padding: 5px;")
+        layout.addWidget(self.stats_label)
+
+        return panel
+
+    def create_right_panel(self):
+        """Create the right panel with conversation viewer and controls."""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+
+        # Conversation header
+        self.conv_header = QLabel("Select a conversation to view")
+        self.conv_header.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px; border-bottom: 1px solid gray;")
+        layout.addWidget(self.conv_header)
+
+        # Action buttons
+        button_layout = QHBoxLayout()
+
+        self.open_browser_btn = QPushButton("🌐 Open in Browser")
+        self.open_browser_btn.clicked.connect(self.open_conversation_in_browser)
+        self.open_browser_btn.setEnabled(False)
+        button_layout.addWidget(self.open_browser_btn)
+
+        self.export_conv_btn = QPushButton("📤 Export")
+        self.export_conv_btn.clicked.connect(self.export_current_conversation)
+        self.export_conv_btn.setEnabled(False)
+        button_layout.addWidget(self.export_conv_btn)
+
+        self.copy_conv_btn = QPushButton("📋 Copy")
+        self.copy_conv_btn.clicked.connect(self.copy_conversation)
+        self.copy_conv_btn.setEnabled(False)
+        button_layout.addWidget(self.copy_conv_btn)
+
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
+
+        # Message viewer
+        self.message_viewer = QTextEdit()
+        self.message_viewer.setReadOnly(True)
+        layout.addWidget(self.message_viewer)
+
+        return panel
+
+    def apply_theme(self):
+        """Apply dark theme to the application."""
+        dark_style = """
             QMainWindow {
-                background-color: #1e1e1e;
-                color: #ffffff;
-            }
-            QMenuBar {
                 background-color: #2b2b2b;
                 color: #ffffff;
-                border-bottom: 1px solid #404040;
             }
-            QMenuBar::item:selected {
-                background-color: #404040;
-            }
-            QStatusBar {
+            QWidget {
                 background-color: #2b2b2b;
                 color: #ffffff;
-                border-top: 1px solid #404040;
             }
-            QLineEdit {
+            QListWidget {
                 background-color: #3c3c3c;
-                color: #ffffff;
                 border: 1px solid #555555;
-                border-radius: 4px;
-                padding: 5px;
+                selection-background-color: #0078d4;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #555555;
+            }
+            QListWidget::item:selected {
+                background-color: #0078d4;
             }
             QPushButton {
                 background-color: #0078d4;
-                color: white;
                 border: none;
-                border-radius: 4px;
                 padding: 8px 16px;
+                border-radius: 4px;
                 font-weight: bold;
             }
             QPushButton:hover {
                 background-color: #106ebe;
             }
-            QPushButton:pressed {
-                background-color: #005a9e;
+            QPushButton:disabled {
+                background-color: #555555;
+                color: #888888;
+            }
+            QLineEdit, QComboBox, QSpinBox {
+                background-color: #3c3c3c;
+                border: 1px solid #555555;
+                padding: 6px;
+                border-radius: 4px;
+            }
+            QTextEdit {
+                background-color: #1e1e1e;
+                border: 1px solid #555555;
             }
             QProgressBar {
                 border: 1px solid #555555;
                 border-radius: 4px;
-                background-color: #3c3c3c;
+                text-align: center;
             }
             QProgressBar::chunk {
                 background-color: #0078d4;
                 border-radius: 3px;
             }
-        """)
-    
-    def sync_conversations(self):
-        """Start syncing conversations from Poe"""
-        token = self.token_input.text().strip()
-        if not token:
-            QMessageBox.warning(self, "Warning", "Please enter your Poe token first.")
+        """
+        self.app.setStyleSheet(dark_style)
+
+    def load_settings(self):
+        """Load application settings and tokens."""
+        config_dir = get_project_root() / "config"
+
+        # Load tokens
+        tokens_file = config_dir / "poe_tokens.json"
+        self.loaded_tokens = safe_json_load(tokens_file, {})
+
+        if self.loaded_tokens:
+            self.logger.info(f"Loaded tokens: {list(self.loaded_tokens.keys())}")
+
+    def start_sync(self):
+        """Start the conversation sync process."""
+        if not self.loaded_tokens.get('p-b'):
+            QMessageBox.warning(
+                self.window,
+                "No Tokens",
+                "Please configure your Poe.com tokens in config/poe_tokens.json"
+            )
             return
-        
-        # Save settings
-        self.save_settings()
-        
-        # Create Poe client
-        headless = self.headless_checkbox.isChecked()
-        self.poe_client = create_poe_client(token, headless=headless)
-        
-        # Show progress
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 100)
+
+        # Setup UI for sync
         self.sync_button.setEnabled(False)
-        
-        # Start sync thread
-        self.sync_thread = ConversationSyncThread(self.poe_client, limit=50)
-        self.sync_thread.progress_update.connect(self.update_progress)
-        self.sync_thread.conversations_loaded.connect(self.on_conversations_loaded)
-        self.sync_thread.error_occurred.connect(self.on_sync_error)
-        self.sync_thread.start()
-    
-    def update_progress(self, value: int, message: str):
-        """Update progress bar and status"""
-        self.progress_bar.setValue(value)
-        self.status_bar.showMessage(message)
-    
-    def on_conversations_loaded(self, conversations: List[Conversation]):
-        """Handle successful conversation loading"""
-        self.conversations = conversations
-        self.chat_list.populate_conversations(conversations)
-        
-        self.progress_bar.setVisible(False)
-        self.sync_button.setEnabled(True)
-        
-        count = len(conversations)
-        self.status_bar.showMessage(f"✅ Loaded {count} conversations")
-        
-        logger.info(f"Successfully loaded {count} conversations")
-    
-    def on_sync_error(self, error_message: str):
-        """Handle sync error"""
-        self.progress_bar.setVisible(False)
-        self.sync_button.setEnabled(True)
-        self.status_bar.showMessage(f"❌ {error_message}")
-        
-        QMessageBox.critical(self, "Sync Error", error_message)
-        logger.error(f"Sync error: {error_message}")
-    
-    def display_conversation(self, conversation: Conversation):
-        """Display selected conversation"""
-        self.chat_viewer.display_conversation(conversation)
-        self.status_bar.showMessage(f"Viewing: {conversation.title}")
-    
-    def filter_conversations(self, search_text: str):
-        """Filter conversations based on search text"""
-        if not search_text:
-            self.chat_list.populate_conversations(self.conversations)
-            return
-        
-        # Simple text search
-        filtered = []
-        search_lower = search_text.lower()
-        
-        for conv in self.conversations:
-            if (search_lower in conv.title.lower() or 
-                search_lower in conv.bot.lower() or
-                any(search_lower in msg.content.lower() for msg in conv.messages)):
-                filtered.append(conv)
-        
-        self.chat_list.populate_conversations(filtered)
-        self.status_bar.showMessage(f"Found {len(filtered)} matching conversations")
-    
-    def export_conversations(self):
-        """Export conversations to file"""
-        if not self.conversations:
-            QMessageBox.information(self, "Info", "No conversations to export. Sync first.")
-            return
-        
-        filename, _ = QFileDialog.getSaveFileName(
-            self, "Export Conversations", "poe_conversations.json", 
-            "JSON Files (*.json);;All Files (*)"
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+
+        # Create and start sync thread
+        self.sync_thread = SyncThread(
+            token=self.loaded_tokens.get('p-b'),
+            lat_token=self.loaded_tokens.get('p-lat'),
+            limit=self.limit_spinbox.value()
         )
-        
+        self.sync_thread.progress.connect(self.update_sync_progress)
+        self.sync_thread.finished.connect(self.sync_finished)
+        self.sync_thread.error.connect(self.sync_error)
+        self.sync_thread.start()
+
+    def update_sync_progress(self, message: str, percentage: int):
+        """Update sync progress display."""
+        self.progress_bar.setValue(percentage)
+        self.status_bar.showMessage(message)
+
+    def sync_finished(self, conversations: List[Dict[str, Any]]):
+        """Handle sync completion."""
+        self.conversations = conversations
+        self.populate_conversation_list()
+        self.update_display()
+
+        # Reset UI
+        self.sync_button.setEnabled(True)
+        self.progress_bar.setVisible(False)
+        self.status_bar.showMessage(f"✅ Synced {len(conversations)} conversations")
+
+    def sync_error(self, error_message: str):
+        """Handle sync error."""
+        QMessageBox.critical(self.window, "Sync Error", f"Failed to sync conversations:\n{error_message}")
+
+        # Reset UI
+        self.sync_button.setEnabled(True)
+        self.progress_bar.setVisible(False)
+        self.status_bar.showMessage("❌ Sync failed")
+
+    def populate_conversation_list(self):
+        """Populate the conversation list widget."""
+        self.conversation_list.clear()
+
+        for conv in self.filtered_conversations or self.conversations:
+            item = QListWidgetItem()
+
+            # Create display text
+            title = conv.get('title', 'Unknown')[:50]
+            bot = conv.get('bot', 'Assistant')
+            category = conv.get('category', 'General')
+
+            display_text = f"{title}\n🤖 {bot} | 📂 {category}"
+            item.setText(display_text)
+            item.setData(Qt.ItemDataRole.UserRole, conv)
+
+            self.conversation_list.addItem(item)
+
+    def filter_conversations(self):
+        """Filter conversations based on search and category."""
+        search_text = self.search_input.text().lower()
+        category_filter = self.category_filter.currentText()
+
+        if not search_text and category_filter == "All Categories":
+            self.filtered_conversations = self.conversations
+        else:
+            self.filtered_conversations = []
+
+            for conv in self.conversations:
+                # Text search
+                if search_text:
+                    title = conv.get('title', '').lower()
+                    bot = conv.get('bot', '').lower()
+                    if search_text not in title and search_text not in bot:
+                        continue
+
+                # Category filter
+                if category_filter != "All Categories":
+                    if conv.get('category') != category_filter:
+                        continue
+
+                self.filtered_conversations.append(conv)
+
+        self.populate_conversation_list()
+        self.update_display()
+
+    def update_display(self):
+        """Update the display with current data."""
+        count = len(self.filtered_conversations or self.conversations)
+        total = len(self.conversations)
+
+        if self.filtered_conversations and len(self.filtered_conversations) != total:
+            self.stats_label.setText(f"Showing {count} of {total} conversations")
+        else:
+            self.stats_label.setText(f"{total} conversations loaded")
+
+    def on_conversation_selected(self, item):
+        """Handle conversation selection."""
+        conversation = item.data(Qt.ItemDataRole.UserRole)
+        if not conversation:
+            return
+
+        self.current_conversation = conversation
+
+        # Update header
+        title = conversation.get('title', 'Unknown Conversation')[:50]
+        bot = conversation.get('bot', 'Assistant')
+        category = conversation.get('category', 'General')
+
+        self.conv_header.setText(f"📝 {title} | 🤖 {bot} | 📂 {category}")
+
+        # Enable action buttons
+        self.open_browser_btn.setEnabled(True)
+        self.export_conv_btn.setEnabled(True)
+        self.copy_conv_btn.setEnabled(True)
+
+        # Display conversation content
+        self.display_conversation_content(conversation)
+
+    def display_conversation_content(self, conversation):
+        """Display conversation content in the viewer."""
+        messages = conversation.get('messages', [])
+
+        if not messages:
+            self.message_viewer.setHtml("""
+                <div style='text-align: center; padding: 20px; color: #888;'>
+                    <h3>📭 No messages loaded</h3>
+                    <p>This conversation doesn't have message content loaded yet.</p>
+                    <p>Message content would be loaded by clicking "Load Messages" button.</p>
+                </div>
+            """)
+            return
+
+        # Create HTML content
+        html_content = """
+        <style>
+            body { font-family: 'Segoe UI', sans-serif; line-height: 1.6; margin: 0; padding: 10px; background: #1e1e1e; color: #fff; }
+            .message { margin: 10px 0; padding: 12px; border-radius: 8px; }
+            .user { background: #0078d4; color: white; margin-left: 20px; }
+            .assistant { background: #2a2a2a; border: 1px solid #404040; margin-right: 20px; }
+            .role { font-weight: bold; margin-bottom: 5px; }
+            .content { white-space: pre-wrap; }
+            .timestamp { font-size: 0.8em; opacity: 0.7; margin-top: 5px; }
+        </style>
+        <body>
+        """
+
+        for msg in messages:
+            role = msg.get('role', 'unknown')
+            content = msg.get('content', '')
+            timestamp = msg.get('timestamp', '')
+
+            role_icon = "👤" if role == "user" else "🤖"
+            css_class = role
+
+            html_content += f"""
+            <div class="message {css_class}">
+                <div class="role">{role_icon} {role.title()}</div>
+                <div class="content">{content}</div>
+                <div class="timestamp">{timestamp}</div>
+            </div>
+            """
+
+        html_content += "</body>"
+        self.message_viewer.setHtml(html_content)
+
+    def open_conversation_in_browser(self):
+        """Open current conversation in browser."""
+        if not self.current_conversation:
+            return
+
+        url = self.current_conversation.get('url')
+        if url and url != 'No direct URL':
+            import webbrowser
+            webbrowser.open(url)
+            self.status_bar.showMessage(f"🌐 Opened conversation in browser")
+        else:
+            QMessageBox.warning(self.window, "No URL", "This conversation doesn't have a direct URL")
+
+    def export_current_conversation(self):
+        """Export current conversation to file."""
+        if not self.current_conversation:
+            QMessageBox.warning(self.window, "No Selection", "Please select a conversation first")
+            return
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self.window,
+            "Export Conversation",
+            f"conversation_{self.current_conversation.get('id', 'unknown')}.json",
+            "JSON Files (*.json);;Text Files (*.txt)"
+        )
+
         if filename:
             try:
-                import json
-                export_data = []
-                for conv in self.conversations:
-                    export_data.append({
-                        'id': conv.id,
-                        'title': conv.title,
-                        'bot': conv.bot,
-                        'created_at': conv.created_at.isoformat(),
-                        'messages': [
-                            {
-                                'role': msg.role,
-                                'content': msg.content,
-                                'timestamp': msg.timestamp.isoformat()
-                            }
-                            for msg in conv.messages
-                        ]
-                    })
-                
                 with open(filename, 'w', encoding='utf-8') as f:
-                    json.dump(export_data, f, indent=2, ensure_ascii=False)
-                
-                QMessageBox.information(self, "Success", f"Exported {len(self.conversations)} conversations to {filename}")
-                
+                    if filename.endswith('.json'):
+                        json.dump(self.current_conversation, f, indent=2, ensure_ascii=False)
+                    else:
+                        # Text export
+                        f.write(f"Title: {self.current_conversation.get('title', 'Unknown')}\n")
+                        f.write(f"Bot: {self.current_conversation.get('bot', 'Assistant')}\n")
+                        f.write(f"Category: {self.current_conversation.get('category', 'General')}\n")
+                        f.write(f"URL: {self.current_conversation.get('url', 'N/A')}\n\n")
+
+                        messages = self.current_conversation.get('messages', [])
+                        for msg in messages:
+                            f.write(f"{msg.get('role', 'unknown').upper()}: {msg.get('content', '')}\n\n")
+
+                QMessageBox.information(self.window, "Success", f"✅ Exported to {filename}")
+                self.status_bar.showMessage(f"✅ Exported conversation")
+
             except Exception as e:
-                QMessageBox.critical(self, "Export Error", f"Failed to export: {str(e)}")
-    
-    def open_settings(self):
-        """Open settings dialog"""
-        QMessageBox.information(self, "Settings", "Settings dialog not implemented yet.")
-    
-    def closeEvent(self, event):
-        """Handle application close"""
-        self.save_settings()
-        
-        if self.poe_client:
-            self.poe_client.disconnect()
-        
-        event.accept()
+                QMessageBox.critical(self.window, "Export Error", f"Failed to export: {str(e)}")
+
+    def copy_conversation(self):
+        """Copy current conversation to clipboard."""
+        if not self.current_conversation:
+            return
+
+        try:
+            content = f"Title: {self.current_conversation.get('title', 'Unknown')}\n"
+            content += f"Bot: {self.current_conversation.get('bot', 'Assistant')}\n"
+            content += f"Category: {self.current_conversation.get('category', 'General')}\n\n"
+
+            messages = self.current_conversation.get('messages', [])
+            for msg in messages:
+                content += f"{msg.get('role', 'unknown').upper()}: {msg.get('content', '')}\n\n"
+
+            clipboard = QApplication.clipboard()
+            clipboard.setText(content)
+
+            self.status_bar.showMessage("📋 Conversation copied to clipboard")
+
+        except Exception as e:
+            QMessageBox.warning(self.window, "Copy Error", f"Failed to copy: {str(e)}")
+
+    def run(self):
+        """Run the GUI application."""
+        self.window.show()
+        return self.app.exec()
+
+
+class SyncThread(QThread):
+    """Thread for background conversation synchronization."""
+
+    progress = pyqtSignal(str, int)
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    def __init__(self, token: str, lat_token: Optional[str] = None, limit: int = 50):
+        super().__init__()
+        self.token = token
+        self.lat_token = lat_token
+        self.limit = limit
+
+    def run(self):
+        """Run the sync process."""
+        try:
+            with PoeApiClient(token=self.token, lat_token=self.lat_token, headless=True) as client:
+                conversations = client.get_conversations(
+                    limit=self.limit,
+                    progress_callback=self.progress.emit
+                )
+                self.finished.emit(conversations)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+def run_gui():
+    """Run the GUI application."""
+    gui = PoeSearchGUI()
+    return gui.run()
+
 
 def main():
-    """Main application entry point"""
-    app = QApplication(sys.argv)
-    app.setApplicationName("Poe Search")
-    app.setApplicationVersion("1.0.0")
-    
-    # Create and show main window
-    window = MainWindow()
-    window.show()
-    
-    return app.exec()
+    """Main entry point."""
+    return run_gui()
+
 
 if __name__ == "__main__":
     sys.exit(main())

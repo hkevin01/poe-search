@@ -1,11 +1,9 @@
-"""API module for Poe Search."""
+"""
+Poe Search API Module
 
-from .client import PoeAPIClient
+This module provides API clients for interacting with Poe.com
+"""
 
-# Temporarily disable until dependencies work
-# from .official_client import OfficialPoeAPIClient
+from .browser_client import PoeApiClient
 
-__all__ = [
-    "PoeAPIClient",
-    # "OfficialPoeAPIClient",
-]
+__all__ = ['PoeApiClient']

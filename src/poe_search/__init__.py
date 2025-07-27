@@ -1,6 +1,13 @@
-"""Poe Search - A tool for searching and organizing Poe.com conversations."""
+"""
+Poe Search - Enhanced AI Conversation Manager
 
-from poe_search.__about__ import __version__
-from poe_search.client import PoeSearchClient
+A comprehensive tool for searching and managing conversations from Poe.com
+"""
 
-__all__ = ["__version__", "PoeSearchClient"]
+__version__ = "1.3.0"
+__author__ = "Kevin Hao"
+__license__ = "MIT"
+
+from .api.browser_client import PoeApiClient
+
+__all__ = ['PoeApiClient']

@@ -7,13 +7,9 @@ name = "poe-search"
 version = "1.0.0"
 description = "A comprehensive tool for searching, organizing, and managing your Poe.com conversations and data"
 readme = "README.md"
-license = {file = "LICENSE"}
-authors = [
-    {name = "Kevin", email = "kevin@poe-search.dev"},
-]
-maintainers = [
-    {name = "Kevin", email = "kevin@poe-search.dev"},
-]
+license = { file = "LICENSE" }
+authors = [{ name = "Kevin", email = "kevin@poe-search.dev" }]
+maintainers = [{ name = "Kevin", email = "kevin@poe-search.dev" }]
 keywords = [
     "poe",
     "ai",
@@ -24,7 +20,7 @@ keywords = [
     "gui",
     "claude",
     "gpt",
-    "chatbot"
+    "chatbot",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -113,11 +109,7 @@ docs = [
 ]
 
 # Testing dependencies for GUI
-test-gui = [
-    "pytest-qt>=4.2.0",
-    "pytest-xvfb>=3.0.0",
-    "xvfbwrapper>=0.2.9",
-]
+test-gui = ["pytest-qt>=4.2.0", "pytest-xvfb>=3.0.0", "xvfbwrapper>=0.2.9"]
 
 # Performance optimization dependencies
 performance = [
@@ -127,9 +119,7 @@ performance = [
 ]
 
 # All optional dependencies combined
-all = [
-    "poe-search[gui,dev,docs,test-gui,performance]"
-]
+all = ["poe-search[gui,dev,docs,test-gui,performance]"]
 
 [project.scripts]
 # Main CLI entry points
@@ -150,7 +140,7 @@ poe-search = "poe_search.cli.main:main"
 poe-search-gui = "poe_search.gui.__main__:main"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -158,65 +148,25 @@ include = ["poe_search*"]
 exclude = ["tests*"]
 
 [tool.setuptools.package-data]
-"poe_search" = [
-    "*.yaml",
-    "*.yml",
-    "*.json",
-    "*.txt",
-    "*.md",
-]
-"poe_search.gui" = [
-    "assets/*",
-    "icons/*",
-    "styles/*",
-    "templates/*",
-]
-"poe_search.config" = [
-    "*.yaml",
-    "*.yml",
-    "templates/*",
-]
+"poe_search" = ["*.yaml", "*.yml", "*.json", "*.txt", "*.md"]
+"poe_search.gui" = ["assets/*", "icons/*", "styles/*", "templates/*"]
+"poe_search.config" = ["*.yaml", "*.yml", "templates/*"]
 
 [tool.setuptools.dynamic]
-version = {attr = "poe_search.__version__"}
+version = { attr = "poe_search.__version__" }
 
-# Black configuration
+# Disable line length restrictions
+[tool.flake8]
+max-line-length = 200
+extend-ignore = ["E203", "W503", "E501"]
+
 [tool.black]
-line-length = 88
-target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
-include = '\.pyi?$'
-extend-exclude = '''
-/(
-  # directories
-  \.eggs
-  | \.git
-  | \.hg
-  | \.mypy_cache
-  | \.tox
-  | \.venv
-  | build
-  | dist
-  | migrations
-)/
-'''
+line-length = 200
+skip-string-normalization = true
 
-# isort configuration
 [tool.isort]
+line_length = 200
 profile = "black"
-multi_line_output = 3
-line_length = 88
-known_first_party = ["poe_search"]
-known_third_party = [
-    "PyQt6",
-    "selenium",
-    "requests",
-    "click",
-    "pydantic",
-    "rich",
-    "aiohttp",
-    "pytest",
-]
-sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
 
 # MyPy configuration
 [tool.mypy]
@@ -258,16 +208,9 @@ addopts = [
     "--cov-report=xml",
 ]
 testpaths = ["tests"]
-python_files = [
-    "test_*.py",
-    "*_test.py",
-]
-python_classes = [
-    "Test*",
-]
-python_functions = [
-    "test_*",
-]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
@@ -286,12 +229,7 @@ filterwarnings = [
 # Coverage configuration
 [tool.coverage.run]
 source = ["src/poe_search"]
-omit = [
-    "*/tests/*",
-    "*/test_*.py",
-    "*/__main__.py",
-    "*/conftest.py",
-]
+omit = ["*/tests/*", "*/test_*.py", "*/__main__.py", "*/conftest.py"]
 branch = true
 
 [tool.coverage.report]
@@ -320,11 +258,11 @@ skips = ["B101", "B601"]
 
 # Flake8 configuration
 [tool.flake8]
-max-line-length = 88
+max-line-length = 200
 extend-ignore = [
-    "E203",  # whitespace before ':'
-    "E501",  # line too long (handled by black)
-    "W503",  # line break before binary operator
+    "E203", # whitespace before ':'
+    "E501", # line too long (handled by black)
+    "W503", # line break before binary operator
 ]
 exclude = [
     ".git",
@@ -338,10 +276,7 @@ exclude = [
     ".mypy_cache",
     ".pytest_cache",
 ]
-per-file-ignores = [
-    "__init__.py:F401",
-    "tests/*:S101",
-]
+per-file-ignores = ["__init__.py:F401", "tests/*:S101"]
 
 # Tox configuration for testing multiple Python versions
 [tool.tox]
@@ -351,7 +286,7 @@ isolated_build = true
 envlist = py38,py39,py310,py311,py312,lint,type-check
 
 [testenv]
-deps = 
+deps =
     pytest>=7.0.0
     pytest-cov>=4.0.0
     pytest-mock>=3.10.0
@@ -359,23 +294,23 @@ deps =
 commands = pytest {posargs}
 
 [testenv:lint]
-deps = 
+deps =
     black>=23.0.0
     isort>=5.12.0
     flake8>=6.0.0
-commands = 
+commands =
     black --check src tests
     isort --check-only src tests
     flake8 src tests
 
 [testenv:type-check]
-deps = 
+deps =
     mypy>=1.5.0
     types-requests>=2.31.0
 commands = mypy src
 
 [testenv:gui]
-deps = 
+deps =
     {[testenv]deps}
     PyQt6>=6.4.0
     pytest-qt>=4.2.0

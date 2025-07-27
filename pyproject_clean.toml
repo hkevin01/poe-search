@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "poe-search"
+version = "1.3.0"
+description = "Enhanced AI Conversation Manager for Poe.com"
+authors = [{ name = "Kevin", email = "kevin@example.com" }]
+license = { text = "MIT" }
+requires-python = ">=3.9"
+dependencies = [
+    "PyQt6>=6.5.0",
+    "selenium>=4.15.0",
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "webdriver-manager>=4.0.0",
+]
+
+[project.optional-dependencies]
+gui = ["PyQt6>=6.5.0"]
+dev = ["pytest>=7.0.0", "black>=22.0.0", "flake8>=5.0.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
